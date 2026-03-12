@@ -43,6 +43,7 @@ class MatchEngine:
         self.time_left = self.match_duration
         self.running = False
         self.golden  = False
+        self.golden_elapsed = 0
         self.finished = False
         self.winner: Optional[str] = None
         self.white = Score()
@@ -79,9 +80,12 @@ class MatchEngine:
             if self.time_left == 0:
                 if self.allow_golden:
                     self.golden = True
+                    self.golden_elapsed = 0
                 else:
                     self.running = False
                     self._resolve_deadlock()
+        else:
+            self.golden_elapsed += 1
         if self.osaekomi and not self.osaekomi_paused:
             self.osaekomi_elapsed += 1
             self._check_osaekomi()
@@ -214,6 +218,8 @@ class MatchEngine:
         if self.golden:
             if w.wazaari>0:      self._end("white"); return
             if b.wazaari>0:      self._end("blue");  return
+            if w.yuko>0:         self._end("white"); return
+            if b.yuko>0:         self._end("blue");  return
             if w.shido>0 and b.shido==0: self._end("blue");  return
             if b.shido>0 and w.shido==0: self._end("white"); return
 
@@ -226,6 +232,8 @@ class MatchEngine:
 
     def _resolve_deadlock(self):
         if self.finished: return
+        if self.white.wazaari != self.blue.wazaari:
+            self._end("white" if self.white.wazaari > self.blue.wazaari else "blue"); return
         if self._compare_yuko(): return
         w,b = self.white, self.blue
         if w.shido != b.shido:
@@ -261,7 +269,7 @@ class MatchEngine:
         self._reset_state(); self.on_update()
 
     def time_str(self):
-        t = self.time_left
+        t = self.golden_elapsed if self.golden else self.time_left
         return f"{t//60:02d}:{t%60:02d}"
 
     def to_result_dict(self):

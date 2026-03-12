@@ -293,7 +293,7 @@ class AthleteRow(QWidget):
 
         # ── Winner badge ──────────────────────────────────────────────────
         if self.is_winner and not self.ippon:
-            badge_sz = max(8, int(H * 0.22))
+            badge_sz = max(7, int(H * 0.16))
             fnt_b = QFont("Arial Black", badge_sz, QFont.Weight.Black)
             p.setFont(fnt_b); p.setPen(_qc(_WIN_FG))
             p.drawText(QRect(name_x, 0, card_zx - name_x - 8, H),
@@ -663,7 +663,7 @@ class ScoreboardWindow(QMainWindow):
         elif opp.hansokumake:
             method = "HANSOKUMAKE"
         else:
-            method = "DECISION"
+            method = "SCORE"
         return (name, engine.winner, method)
 
     def _apply_winner_state(self, state):
@@ -714,7 +714,7 @@ class ScoreboardWindow(QMainWindow):
             if   sc.ippon:           method = "IPPON"
             elif sc.wazaari >= 2:    method = "WAZA-ARI x2"
             elif opp.hansokumake:    method = "HANSOKUMAKE"
-            else:                    method = "DECISION"
+            else:                    method = "SCORE"
             self.win_banner.set_winner(name, engine.winner, method)
         else:
             self.win_banner.clear()

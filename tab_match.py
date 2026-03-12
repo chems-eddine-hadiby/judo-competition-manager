@@ -71,6 +71,7 @@ class MatchTab(QWidget):
         self._timer.setTimerType(Qt.PreciseTimer)
         self._timer.timeout.connect(self._tick)
         self._timer.start(200)
+        self._auto_advanced = False
 
     # ── Build ──────────────────────────────────────────────────────────────────
 
@@ -430,6 +431,7 @@ class MatchTab(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if r == QMessageBox.StandardButton.Yes:
             self.engine.reset(); self._refresh(); self.on_update()
+            self._auto_advanced = False
 
     def _save(self):
         if not self.engine.finished:
@@ -462,6 +464,7 @@ class MatchTab(QWidget):
         self.refresh_competitors()
         self._refresh()
         self.on_update()
+        self._auto_advanced = False
 
     # ── Refresh ────────────────────────────────────────────────────────────────
 
@@ -471,7 +474,31 @@ class MatchTab(QWidget):
             self.white_ctrl.refresh(self.engine)
             self.center_ctrl.refresh(self.engine)
             self._refresh_log()
+            if not self.engine.finished:
+                self._auto_advanced = False
+            if self.engine.finished and self.engine.winner and not self._auto_advanced:
+                self._auto_advance_draw()
+                self._auto_advanced = True
         except: pass
+
+    def _auto_advance_draw(self):
+        winner_id = None
+        if self.engine.winner == "white":
+            winner_id = self.engine.white_id
+        elif self.engine.winner == "blue":
+            winner_id = self.engine.blue_id
+        if not winner_id:
+            return
+        draws = db.load_draws()
+        players = db.load_players()
+        updated = False
+        for key, draw in draws.items():
+            if eng.apply_result_to_draw(draw, self.engine.white_id, self.engine.blue_id, winner_id, players):
+                db.set_draw(key, draw)
+                updated = True
+        if updated:
+            self.on_update()
+            self._draw_update()
 
     def _refresh_log(self):
         if not self.engine.events:
