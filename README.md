@@ -72,10 +72,10 @@ Files:
 - `settings.json`
 
 ## Build EXE (Windows)
-Use PyInstaller:
+Use PyInstaller (with app icon):
 ```bash
 pip install pyinstaller
-pyinstaller --noconfirm --onefile --windowed --name JudoManager main.py
+pyinstaller --noconfirm --onefile --windowed --name JudoManager --icon icon.ico --add-data "icon.ico;." main.py
 ```
 The EXE will be in `dist/JudoManager.exe`.
 

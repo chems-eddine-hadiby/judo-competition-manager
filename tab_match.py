@@ -68,8 +68,9 @@ class MatchTab(QWidget):
         self._build()
 
         self._timer = QTimer(self)
+        self._timer.setTimerType(Qt.PreciseTimer)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(1000)
+        self._timer.start(200)
 
     # ── Build ──────────────────────────────────────────────────────────────────
 
@@ -190,6 +191,8 @@ class MatchTab(QWidget):
                            on_osae_w   = lambda: self.engine.start_osaekomi("white"),
                            on_osae_b   = lambda: self.engine.start_osaekomi("blue"),
                            on_toketa   = self.engine.stop_osaekomi,
+                           on_sono_mama= self.engine.pause_osaekomi,
+                           on_yoshi    = self.engine.resume_osaekomi,
                            on_undo     = self._undo,
                            on_reset    = self._reset,
                            on_save     = self._save)
@@ -458,6 +461,7 @@ class MatchTab(QWidget):
             self.engine.set_stage(stage)
         self.refresh_competitors()
         self._refresh()
+        self.on_update()
 
     # ── Refresh ────────────────────────────────────────────────────────────────
 
@@ -467,7 +471,6 @@ class MatchTab(QWidget):
             self.white_ctrl.refresh(self.engine)
             self.center_ctrl.refresh(self.engine)
             self._refresh_log()
-            self.on_update()
         except: pass
 
     def _refresh_log(self):
@@ -621,13 +624,13 @@ class ScoreDisplay(QWidget):
 
 class CenterControl(QWidget):
     def __init__(self, engine, on_toggle, on_osae_w, on_osae_b,
-                  on_toketa, on_undo, on_reset, on_save, parent=None):
+                  on_toketa, on_sono_mama, on_yoshi, on_undo, on_reset, on_save, parent=None):
         super().__init__(parent)
         self.engine = engine
         self.setStyleSheet(f"background:#08080e;")
-        self._build(on_toggle, on_osae_w, on_osae_b, on_toketa, on_undo, on_reset, on_save)
+        self._build(on_toggle, on_osae_w, on_osae_b, on_toketa, on_sono_mama, on_yoshi, on_undo, on_reset, on_save)
 
-    def _build(self, on_toggle, on_osae_w, on_osae_b, on_toketa, on_undo, on_reset, on_save):
+    def _build(self, on_toggle, on_osae_w, on_osae_b, on_toketa, on_sono_mama, on_yoshi, on_undo, on_reset, on_save):
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(6)
@@ -673,6 +676,15 @@ class CenterControl(QWidget):
         self.btn_toketa.clicked.connect(on_toketa)
         self.btn_toketa.hide()
         root.addWidget(self.btn_toketa)
+
+        sm_row = QHBoxLayout(); sm_row.setSpacing(4)
+        self.btn_sono_mama = _btn("SONO MAMA", C_GOLD, "#2a2300", min_h=30, size=9)
+        self.btn_yoshi = _btn("YOSHI", "#00cc44", "#0a1e0a", min_h=30, size=9)
+        self.btn_sono_mama.clicked.connect(on_sono_mama)
+        self.btn_yoshi.clicked.connect(on_yoshi)
+        sm_row.addWidget(self.btn_sono_mama)
+        sm_row.addWidget(self.btn_yoshi)
+        root.addLayout(sm_row)
 
         root.addWidget(_separator())
 
@@ -734,15 +746,22 @@ class CenterControl(QWidget):
 
         # Osaekomi
         if engine.osaekomi:
-            self.osa_bar.setText(f"HOLD  {engine.osaekomi_elapsed}s / 20s")
+            if engine.osaekomi_paused:
+                self.osa_bar.setText(f"HOLD PAUSED  {engine.osaekomi_elapsed}s / 20s")
+            else:
+                self.osa_bar.setText(f"HOLD  {engine.osaekomi_elapsed}s / 20s")
             self.btn_toketa.show()
             self.btn_hold_blue.setEnabled(False)
             self.btn_hold_white.setEnabled(False)
+            self.btn_sono_mama.setEnabled(not engine.osaekomi_paused)
+            self.btn_yoshi.setEnabled(engine.osaekomi_paused)
         else:
             self.osa_bar.setText("")
             self.btn_toketa.hide()
             self.btn_hold_blue.setEnabled(True)
             self.btn_hold_white.setEnabled(True)
+            self.btn_sono_mama.setEnabled(False)
+            self.btn_yoshi.setEnabled(False)
 
         # Winner
         if engine.finished and engine.winner:

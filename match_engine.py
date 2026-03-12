@@ -49,21 +49,31 @@ class MatchEngine:
         self.blue  = Score()
         self.osaekomi: Optional[str] = None
         self.osaekomi_elapsed = 0
+        self.osaekomi_paused = False
         self.osaekomi_awarded_yuko = False
         self.osaekomi_awarded_wazaari = False
         self.events: list = []
+        # Real-time tracking (prevents timer drift when the UI/event loop is busy).
+        self._last_tick_mono: Optional[float] = None
+        self._tick_accum: float = 0.0
 
     # ── Timer ─────────────────────────────────────────────────────────────────
     def start(self):
-        if not self.finished: self.running=True; self.on_update()
+        if self.finished:
+            return
+        self.running = True
+        self._last_tick_mono = time.monotonic()
+        self._tick_accum = 0.0
+        self.on_update()
     def stop(self):
-        self.running=False; self.on_update()
+        self.running = False
+        self._last_tick_mono = None
+        self._tick_accum = 0.0
+        self.on_update()
     def toggle(self):
         self.stop() if self.running else self.start()
 
-    def tick(self):
-        """Call every 1 second from QTimer."""
-        if not self.running or self.finished: return
+    def _step_one_second(self):
         if not self.golden:
             self.time_left = max(0, self.time_left-1)
             if self.time_left == 0:
@@ -72,16 +82,40 @@ class MatchEngine:
                 else:
                     self.running = False
                     self._resolve_deadlock()
-        if self.osaekomi:
+        if self.osaekomi and not self.osaekomi_paused:
             self.osaekomi_elapsed += 1
             self._check_osaekomi()
         self._check_win()
+
+    def tick(self):
+        """Advance match time based on real elapsed time (robust to UI lag)."""
+        if not self.running or self.finished:
+            return
+        now = time.monotonic()
+        if self._last_tick_mono is None:
+            self._last_tick_mono = now
+            return
+        dt = now - self._last_tick_mono
+        self._last_tick_mono = now
+        if dt <= 0:
+            return
+        # Avoid unbounded catch-up loops if the app was suspended.
+        self._tick_accum = min(self._tick_accum + dt, 3600.0)
+        steps = int(self._tick_accum)
+        if steps <= 0:
+            return
+        self._tick_accum -= steps
+        for _ in range(steps):
+            if not self.running or self.finished:
+                break
+            self._step_one_second()
         self.on_update()
 
     # ── Osaekomi ──────────────────────────────────────────────────────────────
     def start_osaekomi(self, side: str):
         if self.finished or self.osaekomi: return
         self.osaekomi = side; self.osaekomi_elapsed = 0
+        self.osaekomi_paused = False
         self.osaekomi_awarded_yuko = False
         self.osaekomi_awarded_wazaari = False
         if not self.running: self.start()
@@ -91,8 +125,21 @@ class MatchEngine:
         if not self.osaekomi:
             return
         self.osaekomi=None; self.osaekomi_elapsed=0
+        self.osaekomi_paused = False
         self.osaekomi_awarded_yuko = False
         self.osaekomi_awarded_wazaari = False
+        self.on_update()
+
+    def pause_osaekomi(self):
+        if not self.osaekomi:
+            return
+        self.osaekomi_paused = True
+        self.on_update()
+
+    def resume_osaekomi(self):
+        if not self.osaekomi:
+            return
+        self.osaekomi_paused = False
         self.on_update()
 
     def _check_osaekomi(self):
@@ -104,7 +151,6 @@ class MatchEngine:
             self.osaekomi_awarded_yuko = False
             self.osaekomi_awarded_wazaari = False
             self._check_win()
-            self.on_update()
         elif t >= 10 and not self.osaekomi_awarded_wazaari:
             if self.osaekomi_awarded_yuko and s.yuko > 0:
                 s.yuko -= 1
@@ -112,12 +158,10 @@ class MatchEngine:
             self.osaekomi_awarded_wazaari = True
             self._log("osaekomi_wazaari", self.osaekomi)
             self._check_win()
-            self.on_update()
         elif t >= 5 and not self.osaekomi_awarded_yuko:
             s.yuko += 1
             self.osaekomi_awarded_yuko = True
             self._log("osaekomi_yuko", self.osaekomi)
-            self.on_update()
 
     # ── Scoring ───────────────────────────────────────────────────────────────
     def add_ippon(self, side):
@@ -192,7 +236,7 @@ class MatchEngine:
 
     def _end(self, winner):
         self.winner=winner; self.finished=True
-        self.running=False; self.osaekomi=None; self.on_update()
+        self.running=False; self.osaekomi=None
 
     def _log(self, etype, side):
         self.events.append(MatchEvent(etype, side, self.time_left))
@@ -521,6 +565,20 @@ def _update_repechage(draw, players):
     if mode == "simple":
         final = rounds[-1][0] if rounds[-1] else None
         finalists = [final.get("white"), final.get("blue")] if final else [None, None]
+        # Special case: 4 players -> bronze match between semi-final losers
+        if len(rounds) == 2:
+            sf_round = rounds[-2]
+            l1 = _loser(sf_round[0]) if len(sf_round) > 0 else None
+            l2 = _loser(sf_round[1]) if len(sf_round) > 1 else None
+            bronze_match = {
+                "white": l1,
+                "blue": l2,
+                "winner_id": None,
+                "bronze": True,
+            }
+            draw["repechage"] = {"top": {"rounds": [[bronze_match]]}, "bottom": {"rounds": []}}
+            _merge_repechage_results(prev_rep, draw["repechage"])
+            return
         # For 8-player brackets use standard QF->SF structure
         if len(rounds) == 3:
             qf_round = rounds[-3]

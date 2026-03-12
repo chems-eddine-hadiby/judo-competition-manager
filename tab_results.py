@@ -203,17 +203,17 @@ class ResultsTab(QWidget):
         key = self.cat_combo.currentText()
         if not key:
             for lbl in self.place_labels:
-                lbl.setText("—")
+                lbl.setText("-")
             return
         draw = db.get_draw(key)
         players = {p["id"]: p for p in db.load_players()}
         places = self._compute_classement(draw, players)
         for lbl, name in zip(self.place_labels, places):
-            lbl.setText(name or "—")
+            lbl.setText(name or "-")
 
     def _compute_classement(self, draw, players):
         if not draw:
-            return ["—"] * 8
+            return ["-"] * 8
 
         if draw.get("type") == "round_robin":
             return self._compute_rr_classement(draw, players)
@@ -221,9 +221,9 @@ class ResultsTab(QWidget):
         def pstr(pid):
             p = players.get(pid)
             if not p:
-                return "—"
+                return "-"
             club = p.get("club", "").strip()
-            name = p.get("name", "—")
+            name = p.get("name", "-")
             return f"{name} ({club})" if club else name
 
         def loser_of(match):
@@ -273,16 +273,26 @@ class ResultsTab(QWidget):
                     loser = loser_of(rep_final)
                     if loser: seventh_ids.append(loser.get("id"))
 
+        if draw.get("num_players") == 4:
+            bronze = bronze_ids[0] if bronze_ids else None
+            bronze_loser = fifth_ids[0] if fifth_ids else None
+            places = ["-"] * 8
+            places[0] = pstr(gold)
+            places[1] = pstr(silver)
+            places[2] = pstr(bronze)
+            places[4] = pstr(bronze_loser)
+            return places
+
         places = [pstr(gold), pstr(silver)]
         places.extend(pstr(pid) for pid in bronze_ids[:2])
         while len(places) < 4:
-            places.append("—")
+            places.append("-")
         places.extend(pstr(pid) for pid in fifth_ids[:2])
         while len(places) < 6:
-            places.append("—")
+            places.append("-")
         places.extend(pstr(pid) for pid in seventh_ids[:2])
         while len(places) < 8:
-            places.append("—")
+            places.append("-")
         return places
 
     def _compute_rr_classement(self, draw, players):
@@ -324,13 +334,14 @@ class ResultsTab(QWidget):
         def pstr(pid):
             p = players.get(pid)
             if not p:
-                return "—"
+                return "-"
             club = p.get("club", "").strip()
-            name = p.get("name", "—")
+            name = p.get("name", "-")
             return f"{name} ({club})" if club else name
 
         ordered = sorted(pool_ids, key=lambda pid: (-stats[pid]["wins"], -stats[pid]["points"]))
         places = [pstr(pid) for pid in ordered[:8]]
         while len(places) < 8:
-            places.append("—")
+            places.append("-")
         return places
+

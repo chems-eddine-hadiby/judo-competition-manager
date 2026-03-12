@@ -4,6 +4,7 @@ main.py — Judo Competition Manager · IJF 2026
 PyQt5 desktop application, entry point + main window
 """
 import sys
+import os
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QDialog,
     QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
@@ -151,11 +152,16 @@ C_DIM   = "#666688"
 C_CYAN  = "#00E676"
 C_BORDER= "#1e1e35"
 
+def _resource_path(rel_path: str) -> str:
+    base = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base, rel_path)
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Judo Competition Manager · IJF 2026")
+        self.setWindowIcon(QIcon(_resource_path("icon.ico")))
         self.resize(1360, 860)
         self.setMinimumSize(1100, 700)
         self.setStyleSheet(f"background:{C_BG}; color:{C_TEXT};")
@@ -170,6 +176,10 @@ class MainWindow(QMainWindow):
             allow_golden=settings.get("golden_score", True))
 
         self._scoreboard: ScoreboardWindow = None
+        self._scoreboard_white_id = None
+        self._scoreboard_blue_id = None
+        self._scoreboard_white_player = None
+        self._scoreboard_blue_player = None
 
         db.ensure_sample_players()
         self._build()
@@ -324,8 +334,18 @@ class MainWindow(QMainWindow):
                 self.lbl_live.setStyleSheet(f"color:{C_DIM};background:transparent;font-size:12px;font-weight:bold;")
 
             if self._scoreboard and not self._scoreboard.isHidden():
-                wp = db.get_player(self.engine.white_id) if self.engine.white_id else None
-                bp = db.get_player(self.engine.blue_id)  if self.engine.blue_id  else None
+                if self.engine.white_id != self._scoreboard_white_id:
+                    self._scoreboard_white_id = self.engine.white_id
+                    self._scoreboard_white_player = (
+                        db.get_player(self.engine.white_id) if self.engine.white_id else None
+                    )
+                if self.engine.blue_id != self._scoreboard_blue_id:
+                    self._scoreboard_blue_id = self.engine.blue_id
+                    self._scoreboard_blue_player = (
+                        db.get_player(self.engine.blue_id) if self.engine.blue_id else None
+                    )
+                wp = self._scoreboard_white_player
+                bp = self._scoreboard_blue_player
                 self._scoreboard.update_state(self.engine, wp, bp)
         except Exception:
             pass
@@ -352,6 +372,10 @@ class MainWindow(QMainWindow):
     def _on_competitors_change(self):
         self.match_tab.refresh_competitors()
         self.draw_tab.refresh_categories()
+        self._scoreboard_white_id = None
+        self._scoreboard_blue_id = None
+        self._scoreboard_white_player = None
+        self._scoreboard_blue_player = None
 
     def _on_profile_change(self):
         self.draw_tab.refresh_categories()
@@ -383,8 +407,12 @@ class MainWindow(QMainWindow):
             self._scoreboard.raise_()
             self._scoreboard.activateWindow()
         self._scoreboard.set_event_name(self.event_edit.text())
-        wp = db.get_player(self.engine.white_id) if self.engine.white_id else None
-        bp = db.get_player(self.engine.blue_id)  if self.engine.blue_id  else None
+        self._scoreboard_white_id = self.engine.white_id
+        self._scoreboard_blue_id = self.engine.blue_id
+        self._scoreboard_white_player = db.get_player(self.engine.white_id) if self.engine.white_id else None
+        self._scoreboard_blue_player = db.get_player(self.engine.blue_id)  if self.engine.blue_id  else None
+        wp = self._scoreboard_white_player
+        bp = self._scoreboard_blue_player
         self._scoreboard.update_state(self.engine, wp, bp)
 
     def _toggle_scoreboard_fullscreen(self):
@@ -407,6 +435,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Judo Manager")
     app.setStyle("Fusion")
+    app.setWindowIcon(QIcon(_resource_path("icon.ico")))
 
     # Dark palette for native dialogs
     palette = QPalette()

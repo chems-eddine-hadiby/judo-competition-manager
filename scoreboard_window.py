@@ -30,6 +30,8 @@ Timer:     huge bright green, bottom bar dark charcoal
 """
 
 from __future__ import annotations
+import os
+import sys
 from typing import Optional
 
 from PyQt5.QtWidgets import (
@@ -37,7 +39,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QRect, QRectF, QPointF
 from PyQt5.QtGui  import (
-    QPainter, QColor, QFont, QBrush, QPen,
+    QPainter, QColor, QFont, QBrush, QPen, QIcon,
     QLinearGradient, QFontMetrics, QKeyEvent,
     QPainterPath, QRadialGradient,
 )
@@ -74,6 +76,11 @@ _WIN_FG     = "#00ee66"
 
 _OSAE_BG    = "#333300"
 _OSAE_FILL  = "#FFD600"
+
+
+def _resource_path(rel_path: str) -> str:
+    base = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base, rel_path)
 
 
 def _qc(hex_str: str) -> QColor:
@@ -190,11 +197,11 @@ class AthleteRow(QWidget):
         name_x   = pad
         card_zw  = int(W * 0.13)
         card_zx  = W - card_zw - pad
-        name_w   = max(80, card_zx - name_x - int(W * 0.40))
+        name_w   = max(80, card_zx - name_x - int(W * 0.12))
 
         # Score: large digit, aligned right so it never overlaps the name
-        available = max(10, card_zx - name_x - int(W * 0.12))
-        score_w  = min(int(W * 0.26), max(int(W * 0.22), available))
+        available = max(10, card_zx - name_x - int(W * 0.04))
+        score_w  = min(int(W * 0.16), max(int(W * 0.14), available))
         score_x  = max(card_zx - score_w, name_x + int(W * 0.02))
 
         # Colours
@@ -210,7 +217,7 @@ class AthleteRow(QWidget):
             fname   = parts[1] if len(parts) > 1 else ""
 
             full = f"{surname} {fname}".strip()
-            f_sz = max(11, int(H * 0.34))
+            f_sz = max(32, int(H * 1.20))
             fnt_full = QFont("Arial Black", f_sz, QFont.Weight.Bold)
             fm2 = QFontMetrics(fnt_full)
             while fm2.horizontalAdvance(full) > name_w * 0.92 and f_sz > 10:
@@ -226,19 +233,25 @@ class AthleteRow(QWidget):
 
         # ── Club (under name) ────────────────────────────────────────────
         if self.club:
-            club_sz = max(9, int(H * 0.20))
+            club_sz = max(8, int(H * 0.14))
             fnt_club = QFont("Arial", club_sz, QFont.Weight.Medium)
-            p.setFont(fnt_club); p.setPen(_qc("#666666") if self.is_white else _qc("#cfd8ff"))
+            p.setFont(fnt_club); p.setPen(_qc("#000000") if self.is_white else _qc("#cfd8ff"))
             p.drawText(QRect(name_x, int(H * 0.62), name_w, int(H * 0.30)),
                        Qt.AlignCenter | Qt.AlignTop,
                        self.club)
 
         # ── Score digit ───────────────────────────────────────────────────
         digit = "IPPON" if self.ippon else str(self.score_value)
-        d_sz  = max(16, int(H * 0.70)) if self.ippon else max(14, int(H * 0.60))
+        if self.ippon:
+            d_sz = max(16, int(H * 0.70))
+            target_w = 0.88
+        else:
+            base = 0.70 if len(digit) >= 2 else 0.60
+            d_sz = max(14, int(H * base))
+            target_w = 0.98 if len(digit) >= 2 else 0.88
         fnt_d = QFont("Arial Black", d_sz, QFont.Weight.Black)
         fm3   = QFontMetrics(fnt_d)
-        while fm3.horizontalAdvance(digit) > score_w * 0.88 and d_sz > 12:
+        while fm3.horizontalAdvance(digit) > score_w * target_w and d_sz > 12:
             d_sz -= 1
             fnt_d  = QFont("Arial Black", d_sz, QFont.Weight.Black)
             fm3    = QFontMetrics(fnt_d)
@@ -507,9 +520,14 @@ class ScoreboardWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Judo Scoreboard — IJF 2026 — Public Display")
+        self.setWindowIcon(QIcon(_resource_path("icon.ico")))
         self.resize(1280, 720)
         self.setStyleSheet("background: #111;")
         self._build()
+        self._last_white_state = None
+        self._last_blue_state = None
+        self._last_bottom_state = None
+        self._last_winner_state = None
 
     def _build(self):
         root = QWidget()
@@ -543,13 +561,28 @@ class ScoreboardWindow(QMainWindow):
     def update_state(self, engine, white_player, blue_player):
         """Call every tick from the control panel."""
         try:
-            self._apply_row(self.white_row, engine.white, "white", white_player, engine)
-            self._apply_row(self.blue_row,  engine.blue,  "blue",  blue_player,  engine)
-            self._apply_bottom(engine)
-            self._apply_winner(engine, white_player, blue_player)
-            self.white_row.update()
-            self.blue_row.update()
-            self.bottom.update()
+            w_state = self._row_state(engine, engine.white, "white", white_player)
+            if w_state != self._last_white_state:
+                self._last_white_state = w_state
+                self._apply_row_state(self.white_row, w_state)
+                self.white_row.update()
+
+            b_state = self._row_state(engine, engine.blue, "blue", blue_player)
+            if b_state != self._last_blue_state:
+                self._last_blue_state = b_state
+                self._apply_row_state(self.blue_row, b_state)
+                self.blue_row.update()
+
+            bottom_state = self._bottom_state(engine)
+            if bottom_state != self._last_bottom_state:
+                self._last_bottom_state = bottom_state
+                self._apply_bottom_state(bottom_state)
+                self.bottom.update()
+
+            winner_state = self._winner_state(engine, white_player, blue_player)
+            if winner_state != self._last_winner_state:
+                self._last_winner_state = winner_state
+                self._apply_winner_state(winner_state)
         except Exception:
             pass
 
@@ -572,6 +605,73 @@ class ScoreboardWindow(QMainWindow):
     @staticmethod
     def _score_value(score):
         return score.yuko + score.wazaari * 10 + score.ippon * 100
+
+    def _row_state(self, engine, score, side: str, player: Optional[dict]):
+        name = player["name"] if player else "-"
+        country = player["country"] if player else "-"
+        club = player.get("club", "") if player else ""
+        score_value = self._score_value(score)
+        ippon = score.ippon > 0 or score.wazaari >= 2
+        shido = score.shido
+        hansoku = score.hansokumake
+        osaekomi = (engine.osaekomi == side)
+        osae_sec = engine.osaekomi_elapsed if osaekomi else 0
+        is_winner = (engine.winner == side)
+        yuko = score.yuko
+        return (name, country, club, score_value, ippon, shido, hansoku, osaekomi, osae_sec, is_winner, yuko)
+
+    def _apply_row_state(self, row: AthleteRow, state):
+        (row.athlete_name, row.country, row.club, row.score_value, row.ippon,
+         row.shido, row.hansoku, row.osaekomi, row.osae_sec, row.is_winner, row.yuko) = state
+
+    def _bottom_state(self, engine):
+        stage_label = (engine.stage or "").upper()
+        cat = engine.category or ""
+        stage_u = stage_label
+        if cat.upper().startswith(stage_u) and stage_u:
+            cat = cat[len(stage_u):].strip()
+            if cat.startswith("Â·") or cat.startswith("-"):
+                cat = cat[1:].strip()
+        category = f"{stage_u}\n{cat}" if stage_u else cat
+        return (
+            category,
+            engine.time_str(),
+            bool(engine.golden),
+            bool(engine.running),
+            bool(engine.finished),
+            engine.osaekomi is not None,
+            int(engine.osaekomi_elapsed or 0),
+            engine.winner,
+        )
+
+    def _apply_bottom_state(self, state):
+        (self.bottom.category, self.bottom.time_str, self.bottom.golden, self.bottom.running,
+         self.bottom.finished, self.bottom.osaekomi, self.bottom.osae_sec, self.bottom.winner_side) = state
+        self.bottom.stage_text = ""
+
+    def _winner_state(self, engine, white_player, blue_player):
+        if not (engine.finished and engine.winner):
+            return None
+        pl = white_player if engine.winner == "white" else blue_player
+        name = pl["name"] if pl else engine.winner.upper()
+        sc = engine.white if engine.winner == "white" else engine.blue
+        opp = engine.blue if engine.winner == "white" else engine.white
+        if sc.ippon:
+            method = "IPPON"
+        elif sc.wazaari >= 2:
+            method = "WAZA-ARI x2"
+        elif opp.hansokumake:
+            method = "HANSOKUMAKE"
+        else:
+            method = "DECISION"
+        return (name, engine.winner, method)
+
+    def _apply_winner_state(self, state):
+        if not state:
+            self.win_banner.clear()
+            return
+        name, side, method = state
+        self.win_banner.set_winner(name, side, method)
 
     def _apply_bottom(self, engine):
         b = self.bottom
