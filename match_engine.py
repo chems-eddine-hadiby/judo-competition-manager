@@ -49,6 +49,8 @@ class MatchEngine:
         self.blue  = Score()
         self.osaekomi: Optional[str] = None
         self.osaekomi_elapsed = 0
+        self.osaekomi_awarded_yuko = False
+        self.osaekomi_awarded_wazaari = False
         self.events: list = []
 
     # ── Timer ─────────────────────────────────────────────────────────────────
@@ -80,19 +82,42 @@ class MatchEngine:
     def start_osaekomi(self, side: str):
         if self.finished or self.osaekomi: return
         self.osaekomi = side; self.osaekomi_elapsed = 0
+        self.osaekomi_awarded_yuko = False
+        self.osaekomi_awarded_wazaari = False
         if not self.running: self.start()
         else: self.on_update()
 
     def stop_osaekomi(self):
-        self.osaekomi=None; self.osaekomi_elapsed=0; self.on_update()
+        if not self.osaekomi:
+            return
+        self.osaekomi=None; self.osaekomi_elapsed=0
+        self.osaekomi_awarded_yuko = False
+        self.osaekomi_awarded_wazaari = False
+        self.on_update()
 
     def _check_osaekomi(self):
         s = self.white if self.osaekomi=="white" else self.blue
         t = self.osaekomi_elapsed
         if t >= OSAEKOMI_IPPON:
-            s.ippon=1; self._log("osaekomi_ippon", self.osaekomi); self.stop_osaekomi()
-        elif t == OSAEKOMI_WAZAARI and s.wazaari==0:
-            s.wazaari+=1; self._log("osaekomi_wazaari", self.osaekomi)
+            s.ippon=1; self._log("osaekomi_ippon", self.osaekomi)
+            self.osaekomi=None; self.osaekomi_elapsed=0
+            self.osaekomi_awarded_yuko = False
+            self.osaekomi_awarded_wazaari = False
+            self._check_win()
+            self.on_update()
+        elif t >= 10 and not self.osaekomi_awarded_wazaari:
+            if self.osaekomi_awarded_yuko and s.yuko > 0:
+                s.yuko -= 1
+            s.wazaari += 1
+            self.osaekomi_awarded_wazaari = True
+            self._log("osaekomi_wazaari", self.osaekomi)
+            self._check_win()
+            self.on_update()
+        elif t >= 5 and not self.osaekomi_awarded_yuko:
+            s.yuko += 1
+            self.osaekomi_awarded_yuko = True
+            self._log("osaekomi_yuko", self.osaekomi)
+            self.on_update()
 
     # ── Scoring ───────────────────────────────────────────────────────────────
     def add_ippon(self, side):
@@ -215,30 +240,94 @@ def _next_power_of_two(n):
         size *= 2
     return size
 
-def _generate_bracket(pool, preserve_order=False):
+def _seed_positions(size):
+    raw = [
+        0,
+        size // 2,
+        size // 4,
+        3 * size // 4,
+        size // 8,
+        3 * size // 8,
+        5 * size // 8,
+        7 * size // 8,
+    ]
+    positions = []
+    for p in raw:
+        if 0 <= p < size and p not in positions:
+            positions.append(p)
+    return positions
+
+def _generate_bracket(pool, preserve_order=False, champion_ids=None):
     players = pool[:]
-    if not preserve_order:
-        random.shuffle(players)
     n = len(players)
     size = _next_power_of_two(n)
     pairs = size // 2
 
-    # Seed so no pair is BYE vs BYE
+    # Seed champions in fixed bracket positions (max 8)
+    seeds = []
+    if champion_ids and not preserve_order:
+        by_id = {p.get("id"): p for p in players}
+        for cid in champion_ids:
+            p = by_id.get(cid)
+            if p and p not in seeds:
+                seeds.append(p)
+    if seeds:
+        players = [p for p in players if p not in seeds]
+
+    if not preserve_order:
+        random.shuffle(players)
+
     pair_slots = [[None, None] for _ in range(pairs)]
-    # First pass: one athlete per pair
-    first_count = min(pairs, len(players))
-    for i in range(first_count):
-        pair_slots[i][0] = players[i]
-    # Second pass: fill second slot per pair
-    remaining = players[first_count:]
-    indices = list(range(pairs))
-    random.shuffle(indices)
-    idx = 0
-    for p in remaining:
-        while pair_slots[indices[idx]][1] is not None:
-            idx = (idx + 1) % pairs
-        pair_slots[indices[idx]][1] = p
-        idx = (idx + 1) % pairs
+    champ_pairs = []
+    if seeds:
+        positions = _seed_positions(size)
+        for p, pos in zip(seeds, positions):
+            pair = pos // 2
+            slot = pos % 2
+            if pair_slots[pair][slot] is None:
+                pair_slots[pair][slot] = p
+            else:
+                for alt in positions:
+                    ai = alt // 2
+                    aj = alt % 2
+                    if pair_slots[ai][aj] is None:
+                        pair_slots[ai][aj] = p
+                        pair, slot = ai, aj
+                        break
+            champ_pairs.append((p.get("id"), pair, slot))
+
+    remaining = players[:]
+    empty_pairs = [i for i, ps in enumerate(pair_slots) if ps[0] is None and ps[1] is None]
+    random.shuffle(empty_pairs)
+
+    # Fill empty pairs first (randomized) to distribute non-bye matches
+    for i in empty_pairs:
+        if not remaining:
+            break
+        pair_slots[i][0] = remaining.pop(0)
+    for i in empty_pairs:
+        if not remaining:
+            break
+        if pair_slots[i][1] is None:
+            pair_slots[i][1] = remaining.pop(0)
+
+    # If byes are limited, give them to lower-ranked champions first
+    for _, pair, slot in reversed(champ_pairs):
+        if not remaining:
+            break
+        opp = 1 - slot
+        if pair_slots[pair][opp] is None:
+            pair_slots[pair][opp] = remaining.pop(0)
+
+    # Fill any remaining empty slots (fallback)
+    for i in range(pairs):
+        for s in (0, 1):
+            if not remaining:
+                break
+            if pair_slots[i][s] is None:
+                pair_slots[i][s] = remaining.pop(0)
+        if not remaining:
+            break
 
     round0 = []
     for a, b in pair_slots:
@@ -256,11 +345,24 @@ def _generate_bracket(pool, preserve_order=False):
     return rounds, size, n
 
 def _round_robin_matches(players):
-    matches = []
-    for i in range(len(players)):
-        for j in range(i + 1, len(players)):
-            matches.append({"p1": players[i], "p2": players[j], "winner_id": None})
-    return matches
+    # Circle method to distribute matches so athletes don't play back-to-back
+    plist = players[:]
+    random.shuffle(plist)
+    if len(plist) % 2 == 1:
+        plist.append(None)
+    n = len(plist)
+    rounds = []
+    for _ in range(n - 1):
+        round_matches = []
+        for i in range(n // 2):
+            a = plist[i]
+            b = plist[n - 1 - i]
+            if a is not None and b is not None:
+                round_matches.append({"p1": a, "p2": b, "winner_id": None})
+        rounds.append(round_matches)
+        plist = [plist[0]] + [plist[-1]] + plist[1:-1]
+    # Flatten rounds
+    return [m for rnd in rounds for m in rnd]
 
 def _path_opponents(rounds, player_id, include_semi=False):
     if not rounds:
@@ -329,13 +431,16 @@ def _advance_byes_in_rounds(rounds, players):
                 player = next((p for p in players if p.get("id") == wid), None)
                 if first:
                     rounds[ri+1][slot]["white"] = player
+                    rounds[ri+1][slot]["white_from"] = mi
                 else:
                     rounds[ri+1][slot]["blue"] = player
+                    rounds[ri+1][slot]["blue_from"] = mi
 
 def _update_repechage(draw, players):
     if draw.get("type") != "bracket":
         draw["repechage"] = None
         return
+    prev_rep = draw.get("repechage")
     rounds = draw.get("rounds", [])
     if not rounds or len(rounds) < 2:
         draw["repechage"] = None
@@ -358,6 +463,61 @@ def _update_repechage(draw, players):
             return {"white": None, "blue": None, "winner_id": None, "bye": True, "bronze": bronze}
         return {"white": player, "blue": None, "winner_id": player["id"], "bye": True, "bronze": bronze}
 
+    def _ensure_bronze_match(side_rounds):
+        if not side_rounds:
+            side_rounds.append([{"white": None, "blue": None, "winner_id": None, "bronze": True}])
+        elif not side_rounds[-1]:
+            side_rounds[-1] = [{"white": None, "blue": None, "winner_id": None, "bronze": True}]
+        else:
+            m = side_rounds[-1][0]
+            if not m:
+                side_rounds[-1][0] = {"white": None, "blue": None, "winner_id": None, "bronze": True}
+
+    def _place_in_bronze(side_rounds, player):
+        if not player:
+            return
+        _ensure_bronze_match(side_rounds)
+        m = side_rounds[-1][0]
+        if m.get("white") is None:
+            m["white"] = player
+            return
+        if m.get("blue") is None:
+            m["blue"] = player
+            return
+
+    def _merge_repechage_results(old_rep, new_rep):
+        if not isinstance(old_rep, dict) or not isinstance(new_rep, dict):
+            return
+        def match_key(m):
+            if not m: return None
+            w = m.get("white"); b = m.get("blue")
+            ids = []
+            if w and w.get("id"): ids.append(w.get("id"))
+            if b and b.get("id"): ids.append(b.get("id"))
+            if not ids: return None
+            return tuple(sorted(ids))
+
+        wins = {}
+        for side in old_rep.values():
+            if not isinstance(side, dict): continue
+            for round_list in side.get("rounds", []):
+                for m in round_list:
+                    if not m: continue
+                    if m.get("winner_id") is None: continue
+                    k = match_key(m)
+                    if k is not None:
+                        wins[k] = m.get("winner_id")
+
+        for side in new_rep.values():
+            if not isinstance(side, dict): continue
+            for round_list in side.get("rounds", []):
+                for m in round_list:
+                    if not m: continue
+                    if m.get("winner_id") is not None: continue
+                    k = match_key(m)
+                    if k is not None and k in wins:
+                        m["winner_id"] = wins[k]
+
     if mode == "simple":
         final = rounds[-1][0] if rounds[-1] else None
         finalists = [final.get("white"), final.get("blue")] if final else [None, None]
@@ -371,15 +531,20 @@ def _update_repechage(draw, players):
                 sf1_l = _loser(sf_round[0])
                 sf2_l = _loser(sf_round[1])
                 left = [_make_match(qf1_l, qf2_l, bronze=False),
-                        _make_match(None, sf2_l, bronze=True)]
+                        {"white": None, "blue": None, "winner_id": None, "bronze": True}]
                 qf3_l = _loser(qf_round[2])
                 qf4_l = _loser(qf_round[3])
                 right = [_make_match(qf3_l, qf4_l, bronze=False),
-                         _make_match(None, sf1_l, bronze=True)]
+                         {"white": None, "blue": None, "winner_id": None, "bronze": True}]
                 draw["repechage"] = {
                     "top": {"rounds": [[left[0]], [left[1]]]},
                     "bottom": {"rounds": [[right[0]], [right[1]]]},
                 }
+                _advance_byes_in_rounds(draw["repechage"]["top"]["rounds"], players)
+                _advance_byes_in_rounds(draw["repechage"]["bottom"]["rounds"], players)
+                _place_in_bronze(draw["repechage"]["top"]["rounds"], sf2_l)
+                _place_in_bronze(draw["repechage"]["bottom"]["rounds"], sf1_l)
+                _merge_repechage_results(prev_rep, draw["repechage"])
                 return
         # For larger brackets, include all opponents who lost to finalists (excluding semi)
         if not finalists[0] or not finalists[1]:
@@ -394,18 +559,24 @@ def _update_repechage(draw, players):
                 sf1_l = _loser(sf_round[0]) if len(sf_round) > 0 else None
                 sf2_l = _loser(sf_round[1]) if len(sf_round) > 1 else None
                 left = [_make_match(qf1_l, qf2_l, bronze=False),
-                        _make_match(None, sf2_l, bronze=True)]
+                        {"white": None, "blue": None, "winner_id": None, "bronze": True}]
                 right = [_make_match(qf3_l, qf4_l, bronze=False),
-                         _make_match(None, sf1_l, bronze=True)]
+                         {"white": None, "blue": None, "winner_id": None, "bronze": True}]
                 draw["repechage"] = {
                     "top": {"rounds": [[left[0]], [left[1]]]},
                     "bottom": {"rounds": [[right[0]], [right[1]]]},
                 }
+                _advance_byes_in_rounds(draw["repechage"]["top"]["rounds"], players)
+                _advance_byes_in_rounds(draw["repechage"]["bottom"]["rounds"], players)
+                _place_in_bronze(draw["repechage"]["top"]["rounds"], sf2_l)
+                _place_in_bronze(draw["repechage"]["bottom"]["rounds"], sf1_l)
+                _merge_repechage_results(prev_rep, draw["repechage"])
                 return
             draw["repechage"] = {
                 "top": {"rounds": [[_make_match(None, None, bronze=True)]]},
                 "bottom": {"rounds": [[_make_match(None, None, bronze=True)]]},
             }
+            _merge_repechage_results(prev_rep, draw["repechage"])
             return
         sides = {}
         for idx, finalist in enumerate(finalists):
@@ -414,11 +585,13 @@ def _update_repechage(draw, players):
             rep_rounds, _, _ = _generate_bracket(defeated, preserve_order=True) if defeated else ([], 0, 0)
             if not rep_rounds:
                 rep_rounds = [[]]
-            rep_rounds.append([_make_match(None, semi_loser, bronze=True)])
+            rep_rounds.append([{"white": None, "blue": None, "winner_id": None, "bronze": True}])
             _advance_byes_in_rounds(rep_rounds, players)
+            _place_in_bronze(rep_rounds, semi_loser)
             side_key = "top" if idx == 0 else "bottom"
             sides[side_key] = {"rounds": rep_rounds}
         draw["repechage"] = sides
+        _merge_repechage_results(prev_rep, draw["repechage"])
         return
 
     if mode == "double" and len(rounds) >= 2:
@@ -429,6 +602,7 @@ def _update_repechage(draw, players):
                 "top": {"rounds": [[_make_match(None, None, bronze=True)]]},
                 "bottom": {"rounds": [[_make_match(None, None, bronze=True)]]},
             }
+            _merge_repechage_results(prev_rep, draw["repechage"])
             return
         sf_round = rounds[-2]
         # Map finalist -> semi index and loser of each semi
@@ -451,11 +625,13 @@ def _update_repechage(draw, players):
             defeated = _path_opponents(rounds, finalist["id"], include_semi=True)
             rep_rounds, _, _ = _generate_bracket(defeated, preserve_order=True)
             # Final bronze match against opposite semi loser
-            rep_rounds.append([_make_match(None, bronze_opponent, bronze=True)])
+            rep_rounds.append([{"white": None, "blue": None, "winner_id": None, "bronze": True}])
             _advance_byes_in_rounds(rep_rounds, players)
+            _place_in_bronze(rep_rounds, bronze_opponent)
             side_key = "top" if idx == 0 else "bottom"
             sides[side_key] = {"rounds": rep_rounds}
         draw["repechage"] = sides
+        _merge_repechage_results(prev_rep, draw["repechage"])
         return
 
     sides = {}
@@ -467,10 +643,10 @@ def _update_repechage(draw, players):
         sides[side_key] = _build_repechage_side(defeated, semi_loser, mode)
     draw["repechage"] = sides
 
-def generate_draw(players, repechage_mode="simple"):
+def generate_draw(players, repechage_mode="simple", champion_ids=None):
     pool = players[:]
-    random.shuffle(pool)
     if len(pool) in (3, 5):
+        random.shuffle(pool)
         return {
             "type": "round_robin",
             "players": pool,
@@ -478,7 +654,7 @@ def generate_draw(players, repechage_mode="simple"):
             "repechage_mode": repechage_mode,
             "num_players": len(pool),
         }
-    rounds, base, n = _generate_bracket(pool, preserve_order=False)
+    rounds, base, n = _generate_bracket(pool, preserve_order=False, champion_ids=champion_ids)
     draw = {
         "type": "bracket",
         "rounds": rounds,
@@ -508,8 +684,12 @@ def advance_winner(draw, round_idx, match_idx, winner_id, players):
             rounds[round_idx+1].extend([None] * (slot - len(rounds[round_idx+1]) + 1))
         if rounds[round_idx+1][slot] is None:
             rounds[round_idx+1][slot] = {"white": None, "blue": None, "winner_id": None}
-        if first: rounds[round_idx+1][slot]["white"] = player
-        else:     rounds[round_idx+1][slot]["blue"]  = player
+        if first:
+            rounds[round_idx+1][slot]["white"] = player
+            rounds[round_idx+1][slot]["white_from"] = match_idx
+        else:
+            rounds[round_idx+1][slot]["blue"]  = player
+            rounds[round_idx+1][slot]["blue_from"] = match_idx
     _update_repechage(draw, players)
 
 def advance_repechage(draw, side_key, round_idx, match_idx, winner_id, players):
@@ -528,8 +708,12 @@ def advance_repechage(draw, side_key, round_idx, match_idx, winner_id, players):
         player = next((p for p in players if p["id"] == winner_id), None)
         if rounds[round_idx+1][slot] is None:
             rounds[round_idx+1][slot] = {"white": None, "blue": None, "winner_id": None}
-        if first: rounds[round_idx+1][slot]["white"] = player
-        else:     rounds[round_idx+1][slot]["blue"]  = player
+        if first:
+            rounds[round_idx+1][slot]["white"] = player
+            rounds[round_idx+1][slot]["white_from"] = match_idx
+        else:
+            rounds[round_idx+1][slot]["blue"]  = player
+            rounds[round_idx+1][slot]["blue_from"] = match_idx
 
 def apply_result_to_draw(draw, white_id, blue_id, winner_id, players):
     if not draw or not winner_id:
@@ -549,10 +733,29 @@ def apply_result_to_draw(draw, white_id, blue_id, winner_id, players):
     for ri, round_list in enumerate(rounds):
         for mi, match in enumerate(round_list):
             if not match: continue
+            if match.get("winner_id") is not None:
+                continue
             w = match.get("white"); b = match.get("blue")
             if not w or not b: continue
             ids = {w.get("id"), b.get("id")}
             if ids == {white_id, blue_id}:
                 advance_winner(draw, ri, mi, winner_id, players)
                 return True
+    rep = draw.get("repechage") or {}
+    if isinstance(rep, dict):
+        for side_key, side in rep.items():
+            rounds = side.get("rounds", []) if isinstance(side, dict) else []
+            for ri, round_list in enumerate(rounds):
+                for mi, match in enumerate(round_list):
+                    if not match: 
+                        continue
+                    if match.get("winner_id") is not None:
+                        continue
+                    w = match.get("white"); b = match.get("blue")
+                    if not w or not b: 
+                        continue
+                    ids = {w.get("id"), b.get("id")}
+                    if ids == {white_id, blue_id}:
+                        advance_repechage(draw, side_key, ri, mi, winner_id, players)
+                        return True
     return False

@@ -5,7 +5,7 @@ tab_draw.py — Tournament draw (PyQt5)
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox,
     QScrollArea, QFrame, QSizePolicy, QMessageBox, QSplitter, QGridLayout,
-    QFileDialog
+    QFileDialog, QDialog, QListWidget, QListWidgetItem, QDialogButtonBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui  import QColor, QPainter, QPen, QFontMetrics
@@ -35,12 +35,139 @@ def _btn(t,color,bg="#111130",mh=32,sz=10):
     return b
 
 
+class ChampionsDialog(QDialog):
+    def __init__(self, pool, selected_ids=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Champions (max 8)")
+        self.setMinimumSize(560, 360)
+        self._pool = pool[:]
+        self._selected = list(selected_ids or [])
+        self._build()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        lists = QHBoxLayout()
+
+        left = QVBoxLayout()
+        left.addWidget(_l("AVAILABLE ATHLETES", 9, True, C_DIM))
+        self.available = QListWidget()
+        left.addWidget(self.available)
+
+        mid = QVBoxLayout()
+        mid.addStretch()
+        self.btn_add = _btn("ADD →", C_TEXT, "#222", 28, 10)
+        self.btn_remove = _btn("← REMOVE", C_TEXT, "#222", 28, 10)
+        self.btn_up = _btn("↑ UP", C_TEXT, "#222", 28, 10)
+        self.btn_down = _btn("↓ DOWN", C_TEXT, "#222", 28, 10)
+        self.btn_clear = _btn("CLEAR", C_TEXT, "#222", 28, 10)
+        for b in (self.btn_add, self.btn_remove, self.btn_up, self.btn_down, self.btn_clear):
+            mid.addWidget(b)
+        mid.addStretch()
+
+        right = QVBoxLayout()
+        right.addWidget(_l("CHAMPIONS ORDER", 9, True, C_DIM))
+        self.champions = QListWidget()
+        right.addWidget(self.champions)
+
+        lists.addLayout(left, 1)
+        lists.addLayout(mid)
+        lists.addLayout(right, 1)
+        root.addLayout(lists)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        root.addWidget(buttons)
+
+        self.btn_add.clicked.connect(self._add_selected)
+        self.btn_remove.clicked.connect(self._remove_selected)
+        self.btn_up.clicked.connect(lambda: self._move_selected(-1))
+        self.btn_down.clicked.connect(lambda: self._move_selected(1))
+        self.btn_clear.clicked.connect(self._clear_all)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        self._populate()
+
+    def _populate(self):
+        self.available.clear()
+        self.champions.clear()
+        pool_ids = {p.get("id") for p in self._pool}
+        ordered = [cid for cid in self._selected if cid in pool_ids]
+        by_id = {p.get("id"): p for p in self._pool}
+
+        for cid in ordered:
+            p = by_id.get(cid)
+            if not p:
+                continue
+            self.champions.addItem(self._make_item(p))
+
+        for p in self._pool:
+            if p.get("id") in ordered:
+                continue
+            self.available.addItem(self._make_item(p))
+
+    def _make_item(self, p):
+        club = p.get("club", "").strip()
+        name = p.get("name", "TBD")
+        text = f"{name} ({club})" if club else name
+        item = QListWidgetItem(text)
+        item.setData(Qt.UserRole, p.get("id"))
+        return item
+
+    def _add_selected(self):
+        items = self.available.selectedItems()
+        if not items:
+            return
+        for it in items:
+            if self.champions.count() >= 8:
+                QMessageBox.information(self, "Limit", "Maximum 8 champions per pool.")
+                break
+            row = self.available.row(it)
+            self.available.takeItem(row)
+            self.champions.addItem(it)
+
+    def _remove_selected(self):
+        items = self.champions.selectedItems()
+        if not items:
+            return
+        for it in items:
+            row = self.champions.row(it)
+            self.champions.takeItem(row)
+            self.available.addItem(it)
+
+    def _move_selected(self, direction):
+        row = self.champions.currentRow()
+        if row < 0:
+            return
+        new_row = row + direction
+        if new_row < 0 or new_row >= self.champions.count():
+            return
+        item = self.champions.takeItem(row)
+        self.champions.insertItem(new_row, item)
+        self.champions.setCurrentRow(new_row)
+
+    def _clear_all(self):
+        while self.champions.count():
+            it = self.champions.takeItem(0)
+            self.available.addItem(it)
+
+    def selected_ids(self):
+        ids = []
+        for i in range(self.champions.count()):
+            it = self.champions.item(i)
+            ids.append(it.data(Qt.UserRole))
+        return ids
+
+
 class DrawTab(QWidget):
     def __init__(self, on_start_match=None, parent=None):
         super().__init__(parent)
         self.on_start_match = on_start_match or (lambda *a: None)
         self._active_key    = None
         self._cat_btns: dict = {}
+        self._champion_ids = []
         self.setStyleSheet(f"background:{C_BG};")
         self._build()
         self.refresh_categories()
@@ -107,6 +234,14 @@ class DrawTab(QWidget):
             f"font-size:12px;font-weight:bold;padding:4px 18px;}}"
             f"QPushButton:hover{{background:#a01020;}} QPushButton:disabled{{background:#2a0a0a;color:#555;}}")
         self.btn_gen.clicked.connect(self._generate)
+        self.btn_champ = QPushButton("SET CHAMPIONS")
+        self.btn_champ.setEnabled(False)
+        self.btn_champ.setMinimumHeight(32)
+        self.btn_champ.setStyleSheet(
+            "QPushButton {background:#222;color:#fff;border:none;border-radius:4px;"
+            "font-size:11px;font-weight:bold;padding:4px 14px;}"
+            "QPushButton:hover {background:#333;}")
+        self.btn_champ.clicked.connect(self._edit_champions)
         self.btn_print = QPushButton("PRINT DRAW")
         self.btn_print.setEnabled(False)
         self.btn_print.setMinimumHeight(32)
@@ -119,6 +254,7 @@ class DrawTab(QWidget):
         hdr.addWidget(QLabel("Repechage:"))
         hdr.addWidget(self.rep_combo)
         hdr.addWidget(self.btn_gen)
+        hdr.addWidget(self.btn_champ)
         hdr.addWidget(self.btn_print)
         rl.addLayout(hdr)
 
@@ -185,9 +321,13 @@ class DrawTab(QWidget):
         if age_label == "Custom":
             age_label = settings.get("custom_category_label", "Custom")
         stage_label = settings.get("stage","Final")
+        champs = settings.get("champions_by_category", {}).get(key, [])
+        pool_ids = {p.get("id") for p in db.get_players_by_category(g, w)}
+        self._champion_ids = [cid for cid in champs if cid in pool_ids]
         self.lbl_title.setText(f"{stage_label.upper()} · {age_label.upper()} · {w.upper()}  {'MEN' if g=='male' else 'WOMEN'}")
         self.lbl_title.setStyleSheet(f"color:{C_TEXT};background:transparent;font-size:18px;font-weight:bold;")
         self.btn_gen.setEnabled(True)
+        self.btn_champ.setEnabled(True)
         self._render(db.get_draw(key))
 
     # ── Generate draw ──────────────────────────────────────────────────────────
@@ -202,7 +342,8 @@ class DrawTab(QWidget):
             r = QMessageBox.question(self,"Redraw?","Regenerate? Existing results will be lost.",
                 QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No)
             if r != QMessageBox.StandardButton.Yes: return
-        data = eng.generate_draw(pool, repechage_mode=self.rep_combo.currentText())
+        data = eng.generate_draw(pool, repechage_mode=self.rep_combo.currentText(),
+                                 champion_ids=self._champion_ids)
         db.set_draw(self._active_key, data)
         self._render(data)
         self.refresh_categories()
@@ -211,6 +352,24 @@ class DrawTab(QWidget):
         settings = db.load_settings()
         settings["repechage_mode"] = mode
         db.save_settings(settings)
+
+    def _edit_champions(self):
+        if not self._active_key:
+            return
+        g, w = self._active_key.split("-", 1)
+        pool = db.get_players_by_category(g, w)
+        settings = db.load_settings()
+        champs = settings.get("champions_by_category", {}).get(self._active_key, [])
+        dlg = ChampionsDialog(pool, champs, self)
+        if dlg.exec_() == QDialog.Accepted:
+            ids = dlg.selected_ids()
+            settings = db.load_settings()
+            champs_map = settings.get("champions_by_category", {}) or {}
+            champs_map[self._active_key] = ids
+            settings["champions_by_category"] = champs_map
+            db.save_settings(settings)
+            self._champion_ids = ids
+            self._render(db.get_draw(self._active_key))
 
     def _print_draw(self):
         if not self._active_key:
@@ -383,20 +542,34 @@ class DrawTab(QWidget):
         grid = QGridLayout(); grid.setHorizontalSpacing(8); grid.setVerticalSpacing(6)
         grid.addWidget(_l("ATHLETE A", 9, True, C_DIM), 0, 0)
         grid.addWidget(_l("ATHLETE B", 9, True, C_DIM), 0, 1)
-        grid.addWidget(_l("WINNER", 9, True, C_DIM), 0, 2)
+        grid.addWidget(_l("ACTIONS", 9, True, C_DIM), 0, 2)
 
+        players = {p.get("id"): p for p in db.load_players()}
         for i, m in enumerate(matches):
             p1 = m.get("p1"); p2 = m.get("p2")
             grid.addWidget(_l(p1.get("name","TBD") if p1 else "TBD", 10), i+1, 0)
             grid.addWidget(_l(p2.get("name","TBD") if p2 else "TBD", 10), i+1, 1)
             if p1 and p2:
-                b1 = _btn(f"Winner: {p1['name'][:12]}", C_DIM, "#0e0e1e", 24, 9)
-                b2 = _btn(f"Winner: {p2['name'][:12]}", C_DIM, "#0e0e1e", 24, 9)
-                b1.clicked.connect(lambda _, pid=p1["id"], mi=i: self._mark_rr_winner(pid, mi))
-                b2.clicked.connect(lambda _, pid=p2["id"], mi=i: self._mark_rr_winner(pid, mi))
-                hbox = QHBoxLayout(); hbox.setSpacing(6)
-                hbox.addWidget(b1); hbox.addWidget(b2)
-                w = QWidget(); w.setLayout(hbox)
+                action_col = QVBoxLayout(); action_col.setSpacing(4)
+                g, w = (self._active_key.split("-",1) if self._active_key else ("",""))
+                cat_label = f"{'Men' if g=='male' else 'Women'} {w}"
+                if m.get("winner_id"):
+                    win = players.get(m.get("winner_id"))
+                    win_name = win.get("name","—") if win else "—"
+                    win_lbl = _l(f"WINNER: {win_name}", 9, True, C_GOLD)
+                    action_col.addWidget(win_lbl)
+                else:
+                    start_btn = _btn("▶ START MATCH", C_RED, "#14060a", 26, 9)
+                    start_btn.clicked.connect(
+                        lambda _, wp=p1, bp=p2, c=cat_label: self.on_start_match(wp["id"], bp["id"], c, "ROUND ROBIN"))
+                    b1 = _btn(f"Winner: {p1['name'][:12]}", C_DIM, "#0e0e1e", 22, 9)
+                    b2 = _btn(f"Winner: {p2['name'][:12]}", C_DIM, "#0e0e1e", 22, 9)
+                    b1.clicked.connect(lambda _, pid=p1["id"], mi=i: self._mark_rr_winner(pid, mi))
+                    b2.clicked.connect(lambda _, pid=p2["id"], mi=i: self._mark_rr_winner(pid, mi))
+                    action_col.addWidget(start_btn)
+                    action_col.addWidget(b1)
+                    action_col.addWidget(b2)
+                w = QWidget(); w.setLayout(action_col)
                 grid.addWidget(w, i+1, 2)
         v.addLayout(grid)
         self.bracket_vbox.insertWidget(self.bracket_vbox.count()-1, sec)
@@ -412,7 +585,29 @@ class DrawTab(QWidget):
         winner  = match.get("winner_id")
         is_bye  = match.get("bye", False)
 
-        for side, player in [("blue", blue_p), ("white", white_p)]:
+        rows = [("blue", blue_p), ("white", white_p)]
+        wf = match.get("white_from")
+        bf = match.get("blue_from")
+        if white_p and blue_p and (wf is not None or bf is not None):
+            if wf is not None and bf is not None:
+                rows = [("white", white_p), ("blue", blue_p)] if wf <= bf else [("blue", blue_p), ("white", white_p)]
+            elif wf is not None:
+                rows = [("white", white_p), ("blue", blue_p)]
+            elif bf is not None:
+                rows = [("blue", blue_p), ("white", white_p)]
+        elif white_p and (wf is not None):
+            top_first = (wf % 2 == 0)
+            rows = [("white", white_p), ("blue", blue_p)] if top_first else [("blue", blue_p), ("white", white_p)]
+        elif blue_p and (bf is not None):
+            top_first = (bf % 2 == 0)
+            rows = [("blue", blue_p), ("white", white_p)] if top_first else [("white", white_p), ("blue", blue_p)]
+        elif blue_p and white_p:
+            blue_is_champ = blue_p.get("id") in self._champion_ids
+            white_is_champ = white_p.get("id") in self._champion_ids
+            if blue_is_champ != white_is_champ:
+                rows = [("blue", blue_p), ("white", white_p)] if blue_is_champ else [("white", white_p), ("blue", blue_p)]
+
+        for side, player in rows:
             if player is None and is_bye and side=="blue":
                 bye_row = QLabel("  BYE")
                 bye_row.setStyleSheet(f"color:{C_DIM};background:#08080e;font-size:14px;padding:8px;")
@@ -441,8 +636,10 @@ class DrawTab(QWidget):
                     name_text = f"{name_text} ({club})"
             else:
                 name_text = "TBD"
+            is_champ = player and (player.get("id") in self._champion_ids)
             name_lbl = QLabel(name_text)
-            name_lbl.setStyleSheet(f"color:{'#fff' if player else C_DIM};font-size:14px;font-weight:bold;background:transparent;")
+            name_color = C_GOLD if is_champ else ("#fff" if player else C_DIM)
+            name_lbl.setStyleSheet(f"color:{name_color};font-size:14px;font-weight:bold;background:transparent;")
             fm = QFontMetrics(name_lbl.font())
             name_lbl.setText(fm.elidedText(name_lbl.text(), Qt.ElideRight, 280))
             rl.addWidget(name_lbl, stretch=1)
@@ -493,6 +690,22 @@ class DrawTab(QWidget):
         db.set_draw(self._active_key, draw)
         self._render(draw)
 
+    def _mark_rep_winner(self, winner_id, ri, mi, side_key):
+        if not self._active_key: return
+        draw = db.get_draw(self._active_key)
+        if not draw: return
+        eng.advance_repechage(draw, side_key, ri, mi, winner_id, db.load_players())
+        db.set_draw(self._active_key, draw)
+        self._render(draw)
+
+    def _mark_rr_winner(self, winner_id, match_idx):
+        if not self._active_key: return
+        draw = db.get_draw(self._active_key)
+        if not draw: return
+        eng.advance_winner(draw, 0, match_idx, winner_id, db.load_players())
+        db.set_draw(self._active_key, draw)
+        self._render(draw)
+
 
 class ConnectorWidget(QWidget):
     def __init__(self, centers, parent=None):
@@ -519,18 +732,4 @@ class ConnectorWidget(QWidget):
             p.drawLine(x, mid, w, mid)
         p.end()
 
-    def _mark_rep_winner(self, winner_id, ri, mi, side_key):
-        if not self._active_key: return
-        draw = db.get_draw(self._active_key)
-        if not draw: return
-        eng.advance_repechage(draw, side_key, ri, mi, winner_id, db.load_players())
-        db.set_draw(self._active_key, draw)
-        self._render(draw)
-
-    def _mark_rr_winner(self, winner_id, match_idx):
-        if not self._active_key: return
-        draw = db.get_draw(self._active_key)
-        if not draw: return
-        eng.advance_winner(draw, 0, match_idx, winner_id, db.load_players())
-        db.set_draw(self._active_key, draw)
-        self._render(draw)
+    pass

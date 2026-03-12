@@ -22,6 +22,7 @@ DEFAULT_SETTINGS = {
     "custom_weight_categories": "",
     "repechage_mode":    "simple",
     "custom_category_label": "Custom",
+    "champions_by_category": {},
 }
 
 SAMPLE_PLAYERS = [
@@ -130,6 +131,8 @@ def delete_draw(key):
 def load_matches():          return _read(MATCHES_FILE, [])
 def save_match_result(r):
     m=load_matches(); r["saved_at"]=datetime.now().isoformat(); m.append(r); _write(MATCHES_FILE,m)
+def clear_match_history():
+    _write(MATCHES_FILE, [])
 
 # ── Settings ──────────────────────────────────────────────────────────────────
 def load_settings():

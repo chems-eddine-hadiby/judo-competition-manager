@@ -210,12 +210,12 @@ class AthleteRow(QWidget):
             fname   = parts[1] if len(parts) > 1 else ""
 
             full = f"{surname} {fname}".strip()
-            f_sz = max(10, int(H * 0.30))
-            fnt_full = QFont("Arial Black", f_sz, QFont.Weight.Black)
+            f_sz = max(11, int(H * 0.34))
+            fnt_full = QFont("Arial Black", f_sz, QFont.Weight.Bold)
             fm2 = QFontMetrics(fnt_full)
-            while fm2.horizontalAdvance(full) > name_w * 0.92 and f_sz > 9:
+            while fm2.horizontalAdvance(full) > name_w * 0.92 and f_sz > 10:
                 f_sz -= 1
-                fnt_full = QFont("Arial Black", f_sz, QFont.Weight.Black)
+                fnt_full = QFont("Arial Black", f_sz, QFont.Weight.Bold)
                 fm2 = QFontMetrics(fnt_full)
             # Final guard: elide to prevent overlap
             full = fm2.elidedText(full, Qt.ElideRight, int(name_w * 0.92))
@@ -226,8 +226,8 @@ class AthleteRow(QWidget):
 
         # ── Club (under name) ────────────────────────────────────────────
         if self.club:
-            club_sz = max(8, int(H * 0.16))
-            fnt_club = QFont("Arial", club_sz, QFont.Weight.Normal)
+            club_sz = max(9, int(H * 0.20))
+            fnt_club = QFont("Arial", club_sz, QFont.Weight.Medium)
             p.setFont(fnt_club); p.setPen(_qc("#666666") if self.is_white else _qc("#cfd8ff"))
             p.drawText(QRect(name_x, int(H * 0.62), name_w, int(H * 0.30)),
                        Qt.AlignCenter | Qt.AlignTop,
@@ -235,7 +235,7 @@ class AthleteRow(QWidget):
 
         # ── Score digit ───────────────────────────────────────────────────
         digit = "IPPON" if self.ippon else str(self.score_value)
-        d_sz  = max(14, int(H * 0.60))
+        d_sz  = max(16, int(H * 0.70)) if self.ippon else max(14, int(H * 0.60))
         fnt_d = QFont("Arial Black", d_sz, QFont.Weight.Black)
         fm3   = QFontMetrics(fnt_d)
         while fm3.horizontalAdvance(digit) > score_w * 0.88 and d_sz > 12:
@@ -245,10 +245,7 @@ class AthleteRow(QWidget):
 
         # Ippon glow
         if self.ippon and self.score_value > 0:
-            gr = QRadialGradient(score_x + score_w / 2, H / 2, score_w * 0.8)
-            gr.setColorAt(0.0, QColor(255, 100, 0, 90))
-            gr.setColorAt(1.0, QColor(255, 100, 0, 0))
-            p.fillRect(score_x, 0, score_w, H, QBrush(gr))
+            sc = _qc("#FFD600")
 
         p.setFont(fnt_d); p.setPen(sc)
         p.drawText(QRect(score_x, 0, score_w, H), Qt.AlignCenter, digit)
@@ -282,14 +279,13 @@ class AthleteRow(QWidget):
             p.fillRect(0, H - bar_h, int(W * pct), bar_h, fc)
 
         # ── Winner badge ──────────────────────────────────────────────────
-        if self.is_winner:
+        if self.is_winner and not self.ippon:
             badge_sz = max(8, int(H * 0.22))
             fnt_b = QFont("Arial Black", badge_sz, QFont.Weight.Black)
             p.setFont(fnt_b); p.setPen(_qc(_WIN_FG))
-            lbl = "IPPON!" if self.ippon else "WINNER"
             p.drawText(QRect(name_x, 0, card_zx - name_x - 8, H),
                        Qt.AlignRight | Qt.AlignVCenter,
-                       lbl)
+                       "WINNER")
 
         p.end()
 
@@ -367,12 +363,12 @@ class BottomBar(QWidget):
                    Qt.AlignCenter, display)
 
         # ── Status indicator (right) ──────────────────────────────────────
-        stage_label = self.stage_text or "MATCH"
+        stage_label = self.stage_text or ""
         fnt_s = QFont("Arial", max(7, int(H * 0.22)), QFont.Weight.Bold)
         p.setFont(fnt_s)
         if self.finished:
             p.setPen(_qc(_TIMER_HOT))
-            st = "DRAW" if self.winner_side is None else stage_label or "FINAL"
+            st = "DRAW" if self.winner_side is None else (stage_label if stage_label else "RESULT")
         elif self.running:
             p.setPen(_qc("#00cc44"))
             st = "● LIVE"
@@ -580,16 +576,33 @@ class ScoreboardWindow(QMainWindow):
     def _apply_bottom(self, engine):
         b = self.bottom
         stage_label = (engine.stage or "").upper()
-        b.category = f"{stage_label}\n{engine.category}" if stage_label else engine.category
+        cat = engine.category or ""
+        stage_u = stage_label
+        if cat.upper().startswith(stage_u) and stage_u:
+            cat = cat[len(stage_u):].strip()
+            if cat.startswith("·") or cat.startswith("-"):
+                cat = cat[1:].strip()
+        # Ensure custom category label is visible when configured
+        try:
+            import database as db
+            settings = db.load_settings()
+            age_group = settings.get("age_group", "")
+            if age_group == "Custom":
+                custom_label = settings.get("custom_category_label", "Custom").upper()
+                if custom_label and custom_label not in cat.upper():
+                    cat = f"{custom_label} · {cat}" if cat else custom_label
+        except Exception:
+            pass
+        b.category = f"{stage_u}\n{cat}" if stage_u else cat
         b.time_str = engine.time_str()
         b.golden   = engine.golden
         b.running  = engine.running
         b.finished = engine.finished
         b.osaekomi = engine.osaekomi is not None
         b.osae_sec = engine.osaekomi_elapsed
-        b.stage_text = stage_label
+        b.stage_text = ""
         b.winner_side = engine.winner
-        self.header.stage = engine.stage or ""
+        self.header.stage = ""
         self.header.update()
 
     def _apply_winner(self, engine, white_player, blue_player):

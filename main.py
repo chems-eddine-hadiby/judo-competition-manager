@@ -361,6 +361,8 @@ class MainWindow(QMainWindow):
         self.draw_tab.refresh_categories()
         if self.draw_tab._active_key:
             self.draw_tab._render(db.get_draw(self.draw_tab._active_key))
+        if hasattr(self, "res_tab"):
+            self.res_tab.refresh()
 
     def _on_event_name_change(self, name):
         if self._scoreboard:
