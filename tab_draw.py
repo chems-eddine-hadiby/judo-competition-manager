@@ -419,6 +419,9 @@ class DrawTab(QWidget):
         if draw_data.get("type") == "round_robin":
             self._render_round_robin(draw_data)
             return
+        if draw_data.get("type") == "pool5":
+            self._render_pool5(draw_data)
+            return
 
         rounds = draw_data.get("rounds", [])
         self._render_bracket_section("POOL / MAIN DRAW", rounds, context="main", draw_data=draw_data)
@@ -451,6 +454,8 @@ class DrawTab(QWidget):
         self.bracket_vbox.insertWidget(self.bracket_vbox.count()-1, sec)
 
     def _round_label(self, size, round_index, total_rounds):
+        if size == -5:
+            return "SEMI-FINAL" if round_index == 0 else "FINAL"
         if total_rounds <= 0:
             return f"ROUND {round_index+1}"
         if size <= 0:
@@ -471,6 +476,8 @@ class DrawTab(QWidget):
         row = QWidget(); row.setStyleSheet("background:transparent;")
         h = QHBoxLayout(row); h.setContentsMargins(0,0,0,0); h.setSpacing(0)
         size = (draw_data or {}).get("size", 0)
+        if (draw_data or {}).get("type") == "pool5":
+            size = -5
         base_step = CARD_H + CARD_SPACING
         for ri, round_list in enumerate(rounds):
             col = QWidget(); col.setFixedWidth(420)
@@ -574,6 +581,71 @@ class DrawTab(QWidget):
         v.addLayout(grid)
         self.bracket_vbox.insertWidget(self.bracket_vbox.count()-1, sec)
 
+    def _render_pool5(self, draw_data):
+        sec = QWidget(); sec.setStyleSheet("background:transparent;")
+        v = QVBoxLayout(sec); v.setContentsMargins(0,0,0,0); v.setSpacing(12)
+        lbl = _l("POOLS (5 ATHLETES)", 12, True, C_TEXT)
+        lbl.setAlignment(Qt.AlignCenter)
+        v.addWidget(lbl)
+
+        def _pool_table(title, matches, stage_label, stage_key):
+            box = QWidget()
+            lv = QVBoxLayout(box); lv.setContentsMargins(0,0,0,0); lv.setSpacing(6)
+            t = _l(title, 11, True, C_GOLD)
+            lv.addWidget(t)
+            grid = QGridLayout(); grid.setHorizontalSpacing(8); grid.setVerticalSpacing(6)
+            grid.addWidget(_l("ATHLETE A", 9, True, C_DIM), 0, 0)
+            grid.addWidget(_l("ATHLETE B", 9, True, C_DIM), 0, 1)
+            grid.addWidget(_l("ACTIONS", 9, True, C_DIM), 0, 2)
+            players = {p.get("id"): p for p in db.load_players()}
+            for i, m in enumerate(matches):
+                p1 = m.get("p1"); p2 = m.get("p2")
+                grid.addWidget(_l(p1.get("name","TBD") if p1 else "TBD", 10), i+1, 0)
+                grid.addWidget(_l(p2.get("name","TBD") if p2 else "TBD", 10), i+1, 1)
+                if p1 and p2:
+                    action_col = QVBoxLayout(); action_col.setSpacing(4)
+                    g, w = (self._active_key.split("-",1) if self._active_key else ("",""))
+                    cat_label = f"{'Men' if g=='male' else 'Women'} {w}"
+                    if m.get("winner_id"):
+                        win = players.get(m.get("winner_id"))
+                        win_name = win.get("name","-") if win else "-"
+                        win_lbl = _l(f"WINNER: {win_name}", 9, True, C_GOLD)
+                        action_col.addWidget(win_lbl)
+                    else:
+                        start_btn = _btn("▶ START MATCH", C_RED, "#14060a", 26, 9)
+                        start_btn.clicked.connect(
+                            lambda _, wp=p1, bp=p2, c=cat_label, st=stage_label:
+                                self.on_start_match(wp["id"], bp["id"], c, st))
+                        b1 = _btn(f"Winner: {p1['name'][:12]}", C_DIM, "#0e0e1e", 22, 9)
+                        b2 = _btn(f"Winner: {p2['name'][:12]}", C_DIM, "#0e0e1e", 22, 9)
+                        b1.clicked.connect(lambda _, pid=p1["id"], mi=i, sk=stage_key: self._mark_pool5_winner(pid, sk, mi))
+                        b2.clicked.connect(lambda _, pid=p2["id"], mi=i, sk=stage_key: self._mark_pool5_winner(pid, sk, mi))
+                        action_col.addWidget(start_btn)
+                        action_col.addWidget(b1)
+                        action_col.addWidget(b2)
+                    w = QWidget(); w.setLayout(action_col)
+                    grid.addWidget(w, i+1, 2)
+            lv.addLayout(grid)
+            return box
+
+        pools = draw_data.get("pools", {})
+        pool_row = QHBoxLayout(); pool_row.setSpacing(16)
+        pool_row.addWidget(_pool_table("POOL A (2)", pools.get("A", {}).get("matches", []), "POOL A", "pool_a"))
+        pool_row.addWidget(_pool_table("POOL B (3)", pools.get("B", {}).get("matches", []), "POOL B", "pool_b"))
+        v.addLayout(pool_row)
+
+        # Semis and final
+        semis = draw_data.get("semis", [])
+        final = draw_data.get("final")
+        sec2 = QWidget(); sec2.setStyleSheet("background:transparent;")
+        v2 = QVBoxLayout(sec2); v2.setContentsMargins(0,0,0,0); v2.setSpacing(8)
+        v2.addWidget(_l("SEMI-FINALS / FINAL", 12, True, C_TEXT, ))
+        rounds = [semis, [final] if final else []]
+        v2.addWidget(self._render_rounds_widget(rounds, context="pool5", draw_data=draw_data))
+        v.addWidget(sec2)
+
+        self.bracket_vbox.insertWidget(self.bracket_vbox.count()-1, sec)
+
     def _make_match_card(self, match, ri, mi, context="main", side_key=None, round_label=None):
         card = QFrame()
         card.setStyleSheet(f"background:{C_PANEL};border:1px solid {C_BORDER};border-radius:4px;")
@@ -675,6 +747,10 @@ class DrawTab(QWidget):
                         mb.clicked.connect(
                             lambda _, pid=player["id"], r=ri, m=mi, sk=side_key:
                                 self._mark_rep_winner(pid, r, m, sk))
+                    elif context == "pool5":
+                        mb.clicked.connect(
+                            lambda _, pid=player["id"], r=ri, m=mi:
+                                self._mark_pool5_winner(pid, "semi" if r == 0 else "final", m))
                     else:
                         mb.clicked.connect(
                             lambda _, pid=player["id"], r=ri, m=mi:
@@ -703,6 +779,14 @@ class DrawTab(QWidget):
         draw = db.get_draw(self._active_key)
         if not draw: return
         eng.advance_winner(draw, 0, match_idx, winner_id, db.load_players())
+        db.set_draw(self._active_key, draw)
+        self._render(draw)
+
+    def _mark_pool5_winner(self, winner_id, stage_key, match_idx):
+        if not self._active_key: return
+        draw = db.get_draw(self._active_key)
+        if not draw: return
+        eng.advance_pool5(draw, stage_key, match_idx, winner_id, db.load_players())
         db.set_draw(self._active_key, draw)
         self._render(draw)
 

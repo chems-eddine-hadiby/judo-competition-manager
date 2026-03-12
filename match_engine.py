@@ -408,6 +408,86 @@ def _round_robin_matches(players):
     # Flatten rounds
     return [m for rnd in rounds for m in rnd]
 
+def _pool_order(players, matches):
+    ids = [p.get("id") for p in players if p and p.get("id") is not None]
+    wins = {pid: 0 for pid in ids}
+    for m in matches:
+        wid = m.get("winner_id")
+        if wid in wins:
+            wins[wid] += 1
+    # Stable order: wins desc, then id asc
+    ordered_ids = sorted(ids, key=lambda pid: (-wins.get(pid, 0), pid))
+    by_id = {p.get("id"): p for p in players if p}
+    return [by_id.get(pid) for pid in ordered_ids if pid in by_id]
+
+def _update_pool5(draw, players):
+    pools = draw.get("pools", {})
+    pool_a = pools.get("A", {})
+    pool_b = pools.get("B", {})
+    a_players = pool_a.get("players", [])
+    b_players = pool_b.get("players", [])
+    a_matches = pool_a.get("matches", [])
+    b_matches = pool_b.get("matches", [])
+
+    def _pool_complete(matches):
+        for m in matches:
+            p1 = m.get("p1"); p2 = m.get("p2")
+            if p1 and p2 and not m.get("winner_id"):
+                return False
+        return True
+
+    a_complete = _pool_complete(a_matches)
+    b_complete = _pool_complete(b_matches)
+    a_order = _pool_order(a_players, a_matches) if a_complete else []
+    b_order = _pool_order(b_players, b_matches) if b_complete else []
+
+    semis = draw.get("semis", [])
+    while len(semis) < 2:
+        semis.append({"white": None, "blue": None, "winner_id": None})
+    draw["semis"] = semis
+
+    def _set_match(match, white, blue):
+        prev_w = match.get("white"); prev_b = match.get("blue")
+        prev_ids = {prev_w.get("id") if prev_w else None, prev_b.get("id") if prev_b else None}
+        new_ids = {white.get("id") if white else None, blue.get("id") if blue else None}
+        if prev_ids != new_ids:
+            match["winner_id"] = None
+        match["white"] = white
+        match["blue"] = blue
+
+    if a_complete and b_complete:
+        a1 = a_order[0] if len(a_order) > 0 else None
+        a2 = a_order[1] if len(a_order) > 1 else None
+        b1 = b_order[0] if len(b_order) > 0 else None
+        b2 = b_order[1] if len(b_order) > 1 else None
+        _set_match(semis[0], a1, b2)
+        _set_match(semis[1], a2, b1)
+
+    final = draw.get("final") or {"white": None, "blue": None, "winner_id": None}
+    # Clear invalid winners
+    for sm in semis:
+        w = sm.get("white")
+        b = sm.get("blue")
+        if not w or not b:
+            continue
+        valid_ids = {w.get("id"), b.get("id")}
+        if sm.get("winner_id") not in valid_ids:
+            sm["winner_id"] = None
+    # Advance to final
+    w1 = semis[0].get("winner_id")
+    w2 = semis[1].get("winner_id")
+    if w1 and w2:
+        p1 = next((p for p in players if p.get("id") == w1), None)
+        p2 = next((p for p in players if p.get("id") == w2), None)
+        prev_final_ids = {final.get("white", {}).get("id") if final.get("white") else None,
+                          final.get("blue", {}).get("id") if final.get("blue") else None}
+        new_final_ids = {p1.get("id") if p1 else None, p2.get("id") if p2 else None}
+        if prev_final_ids != new_final_ids:
+            final["winner_id"] = None
+        final["white"] = p1
+        final["blue"] = p2
+        draw["final"] = final
+
 def _path_opponents(rounds, player_id, include_semi=False):
     if not rounds:
         return []
@@ -703,7 +783,7 @@ def _update_repechage(draw, players):
 
 def generate_draw(players, repechage_mode="simple", champion_ids=None):
     pool = players[:]
-    if len(pool) in (3, 5):
+    if len(pool) == 3:
         random.shuffle(pool)
         return {
             "type": "round_robin",
@@ -712,6 +792,48 @@ def generate_draw(players, repechage_mode="simple", champion_ids=None):
             "repechage_mode": repechage_mode,
             "num_players": len(pool),
         }
+    if len(pool) == 5:
+        random.shuffle(pool)
+        pool_a = []
+        pool_b = []
+        if champion_ids:
+            by_id = {p.get("id"): p for p in pool}
+            champs = []
+            for cid in champion_ids:
+                p = by_id.get(cid)
+                if p and p not in champs:
+                    champs.append(p)
+            for p in champs:
+                if p in pool:
+                    pool.remove(p)
+            for i, p in enumerate(champs):
+                if len(pool_a) < 2 and (i % 2 == 0 or len(pool_b) >= 3):
+                    pool_a.append(p)
+                elif len(pool_b) < 3:
+                    pool_b.append(p)
+                elif len(pool_a) < 2:
+                    pool_a.append(p)
+        for p in pool:
+            if len(pool_a) < 2:
+                pool_a.append(p)
+            else:
+                pool_b.append(p)
+        draw = {
+            "type": "pool5",
+            "pools": {
+                "A": {"players": pool_a, "matches": _round_robin_matches(pool_a)},
+                "B": {"players": pool_b, "matches": _round_robin_matches(pool_b)},
+            },
+            "semis": [
+                {"white": None, "blue": None, "winner_id": None},
+                {"white": None, "blue": None, "winner_id": None},
+            ],
+            "final": {"white": None, "blue": None, "winner_id": None},
+            "repechage_mode": repechage_mode,
+            "num_players": len(pool),
+        }
+        _update_pool5(draw, pool)
+        return draw
     rounds, base, n = _generate_bracket(pool, preserve_order=False, champion_ids=champion_ids)
     draw = {
         "type": "bracket",
@@ -731,6 +853,9 @@ def advance_winner(draw, round_idx, match_idx, winner_id, players):
         matches = draw.get("matches", [])
         if 0 <= match_idx < len(matches):
             matches[match_idx]["winner_id"] = winner_id
+        return
+    if draw.get("type") == "pool5":
+        # pool5 uses advance_pool5 for match updates
         return
     rounds = draw["rounds"]
     rounds[round_idx][match_idx]["winner_id"] = winner_id
@@ -773,6 +898,34 @@ def advance_repechage(draw, side_key, round_idx, match_idx, winner_id, players):
             rounds[round_idx+1][slot]["blue"]  = player
             rounds[round_idx+1][slot]["blue_from"] = match_idx
 
+def advance_pool5(draw, stage, match_idx, winner_id, players):
+    if draw.get("type") != "pool5":
+        return
+    pools = draw.get("pools", {})
+    if stage == "pool_a":
+        matches = pools.get("A", {}).get("matches", [])
+        if 0 <= match_idx < len(matches):
+            matches[match_idx]["winner_id"] = winner_id
+        _update_pool5(draw, players)
+        return
+    if stage == "pool_b":
+        matches = pools.get("B", {}).get("matches", [])
+        if 0 <= match_idx < len(matches):
+            matches[match_idx]["winner_id"] = winner_id
+        _update_pool5(draw, players)
+        return
+    if stage == "semi":
+        semis = draw.get("semis", [])
+        if 0 <= match_idx < len(semis):
+            semis[match_idx]["winner_id"] = winner_id
+        _update_pool5(draw, players)
+        return
+    if stage == "final":
+        final = draw.get("final")
+        if final:
+            final["winner_id"] = winner_id
+        return
+
 def apply_result_to_draw(draw, white_id, blue_id, winner_id, players):
     if not draw or not winner_id:
         return False
@@ -784,6 +937,34 @@ def apply_result_to_draw(draw, white_id, blue_id, winner_id, players):
             ids = {p1.get("id"), p2.get("id")}
             if ids == {white_id, blue_id}:
                 m["winner_id"] = winner_id
+                return True
+        return False
+    if draw.get("type") == "pool5":
+        pools = draw.get("pools", {})
+        for key, stage in (("A", "pool_a"), ("B", "pool_b")):
+            matches = pools.get(key, {}).get("matches", [])
+            for i, m in enumerate(matches):
+                p1 = m.get("p1"); p2 = m.get("p2")
+                if not p1 or not p2: 
+                    continue
+                ids = {p1.get("id"), p2.get("id")}
+                if ids == {white_id, blue_id}:
+                    advance_pool5(draw, stage, i, winner_id, players)
+                    return True
+        for i, m in enumerate(draw.get("semis", [])):
+            w = m.get("white"); b = m.get("blue")
+            if not w or not b:
+                continue
+            ids = {w.get("id"), b.get("id")}
+            if ids == {white_id, blue_id}:
+                advance_pool5(draw, "semi", i, winner_id, players)
+                return True
+        final = draw.get("final") or {}
+        w = final.get("white"); b = final.get("blue")
+        if w and b:
+            ids = {w.get("id"), b.get("id")}
+            if ids == {white_id, blue_id}:
+                advance_pool5(draw, "final", 0, winner_id, players)
                 return True
         return False
 

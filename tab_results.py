@@ -217,6 +217,58 @@ class ResultsTab(QWidget):
 
         if draw.get("type") == "round_robin":
             return self._compute_rr_classement(draw, players)
+        if draw.get("type") == "pool5":
+            def _pool_order(pool_players, matches):
+                ids = [p.get("id") for p in pool_players if p and p.get("id") is not None]
+                wins = {pid: 0 for pid in ids}
+                for m in matches:
+                    wid = m.get("winner_id")
+                    if wid in wins:
+                        wins[wid] += 1
+                ordered_ids = sorted(ids, key=lambda pid: (-wins.get(pid, 0), pid))
+                return ordered_ids
+
+            def loser_of(match):
+                if not match: return None
+                w = match.get("white"); b = match.get("blue")
+                if not w or not b: return None
+                wid = match.get("winner_id")
+                if not wid: return None
+                return b if w.get("id") == wid else w
+
+            def pstr(pid):
+                p = players.get(pid)
+                if not p:
+                    return "-"
+                club = p.get("club", "").strip()
+                name = p.get("name", "-")
+                return f"{name} ({club})" if club else name
+
+            final = draw.get("final") or {}
+            gold = silver = None
+            if final.get("winner_id"):
+                gold = final.get("winner_id")
+                other = final.get("blue") if final.get("white", {}).get("id") == gold else final.get("white")
+                silver = other.get("id") if other else None
+
+            bronze_ids = []
+            for sm in draw.get("semis", []):
+                loser = loser_of(sm)
+                if loser:
+                    bronze_ids.append(loser.get("id"))
+
+            pools = draw.get("pools", {})
+            pool_b = pools.get("B", {})
+            b_ids = _pool_order(pool_b.get("players", []), pool_b.get("matches", []))
+            third_b = b_ids[2] if len(b_ids) > 2 else None
+
+            places = ["-"] * 8
+            places[0] = pstr(gold)
+            places[1] = pstr(silver)
+            if len(bronze_ids) > 0: places[2] = pstr(bronze_ids[0])
+            if len(bronze_ids) > 1: places[3] = pstr(bronze_ids[1])
+            places[6] = pstr(third_b)
+            return places
 
         def pstr(pid):
             p = players.get(pid)
@@ -298,7 +350,7 @@ class ResultsTab(QWidget):
     def _compute_rr_classement(self, draw, players):
         pool = draw.get("players", [])
         if not pool:
-            return ["—"] * 8
+            return ["-"] * 8
         pool_ids = [p.get("id") for p in pool if p.get("id") is not None]
         stats = {pid: {"wins": 0, "points": 0} for pid in pool_ids}
 
@@ -344,4 +396,5 @@ class ResultsTab(QWidget):
         while len(places) < 8:
             places.append("-")
         return places
+
 
