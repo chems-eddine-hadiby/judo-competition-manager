@@ -28,7 +28,7 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name JudoManager main.py
+          pyinstaller --noconfirm --onefile --windowed --name JudoManager --icon icon.ico --add-data "icon.ico;." main.py
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
