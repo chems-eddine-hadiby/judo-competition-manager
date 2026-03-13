@@ -924,12 +924,16 @@ def advance_repechage(draw, side_key, round_idx, match_idx, winner_id, players):
         player = next((p for p in players if p["id"] == winner_id), None)
         if rounds[round_idx+1][slot] is None:
             rounds[round_idx+1][slot] = {"white": None, "blue": None, "winner_id": None}
-        if first:
-            rounds[round_idx+1][slot]["white"] = player
-            rounds[round_idx+1][slot]["white_from"] = match_idx
-        else:
-            rounds[round_idx+1][slot]["blue"]  = player
-            rounds[round_idx+1][slot]["blue_from"] = match_idx
+        
+        match = rounds[round_idx+1][slot]
+        side = "white" if first else "blue"
+        
+        # If target slot is pre-filled by a placed loser (no _from), flip side
+        if match.get(side) is not None and match.get(f"{side}_from") is None:
+            side = "blue" if side == "white" else "white"
+            
+        match[side] = player
+        match[f"{side}_from"] = match_idx
 
 def advance_pool5(draw, stage, match_idx, winner_id, players):
     if draw.get("type") != "pool5":
