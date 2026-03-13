@@ -240,7 +240,8 @@ class MainWindow(QMainWindow):
         self.event_edit.setFixedWidth(280)
         self.event_edit.setStyleSheet(
             "background:#1a1a2e;color:#fff;border:1px solid #2a2a4a;"
-            "border-radius:3px;padding:5px 8px;font-size:11px;")
+            "border-radius:3px;padding:5px 8px;font-size:11px;"
+            "selection-background-color:#D32F2F;selection-color:#ffffff;")
         self.event_edit.textChanged.connect(self._on_event_name_change)
         hl.addWidget(self.event_edit)
 

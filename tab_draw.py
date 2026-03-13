@@ -81,6 +81,14 @@ class ChampionsDialog(QDialog):
         right = QVBoxLayout()
         right.addWidget(_l("CHAMPIONS ORDER", 9, True, C_DIM))
         self.champions = QListWidget()
+        
+        # Style lists for visibility
+        list_style = (f"QListWidget{{background:{C_PANEL};color:{C_TEXT};border:1px solid {C_BORDER};border-radius:4px;outline:none;}}"
+                      f"QListWidget::item:selected{{background:{C_RED};color:#fff;}}"
+                      f"QListWidget::item:hover{{background:#1a1a32;}}")
+        self.available.setStyleSheet(list_style)
+        self.champions.setStyleSheet(list_style)
+
         right.addWidget(self.champions)
 
         lists.addLayout(left, 1)

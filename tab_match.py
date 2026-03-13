@@ -165,7 +165,8 @@ class MatchTab(QWidget):
         self.cat_edit.setPlaceholderText("e.g. Men -73kg Final")
         self.cat_edit.setStyleSheet(
             f"background:#1a1a2e;color:{C_TEXT};border:1px solid {C_BORDER};"
-            "border-radius:3px;padding:5px 8px;font-size:11px;")
+            "border-radius:3px;padding:5px 8px;font-size:11px;"
+            "selection-background-color:#D32F2F;selection-color:#ffffff;")
         self.cat_edit.textChanged.connect(
             lambda t: setattr(self.engine, "category", t))
         self._update_category_label()

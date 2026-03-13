@@ -25,7 +25,8 @@ def _label(t="",size=11,bold=False,color=C_TEXT):
 def _input(placeholder=""):
     e=QLineEdit(); e.setPlaceholderText(placeholder)
     e.setStyleSheet("background:#1a1a2e;color:#fff;border:1px solid #2a2a4a;"
-                    "border-radius:3px;padding:6px 8px;font-size:12px;")
+                    "border-radius:3px;padding:6px 8px;font-size:12px;"
+                    "selection-background-color:#D32F2F;selection-color:#ffffff;")
     return e
 
 def _combo(items):
