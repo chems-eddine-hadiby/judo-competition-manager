@@ -635,6 +635,13 @@ def _update_repechage(draw, players):
             return
         _ensure_bronze_match(side_rounds)
         m = side_rounds[-1][0]
+        
+        # Idempotency check
+        wid = m.get("white", {}).get("id") if m.get("white") else None
+        bid = m.get("blue", {}).get("id") if m.get("blue") else None
+        if wid == player["id"] or bid == player["id"]:
+            return
+
         if m.get("white") is None:
             m["white"] = player
             return
@@ -699,12 +706,45 @@ def _update_repechage(draw, players):
             if len(qf_round) >= 4 and len(sf_round) >= 2:
                 qf1_l = _loser(qf_round[0])
                 qf2_l = _loser(qf_round[1])
-                sf1_l = _loser(sf_round[0])
-                sf2_l = _loser(sf_round[1])
-                left = [_make_match(qf1_l, qf2_l, bronze=False),
-                        {"white": None, "blue": None, "winner_id": None, "bronze": True}]
                 qf3_l = _loser(qf_round[2])
                 qf4_l = _loser(qf_round[3])
+                sf1_l = _loser(sf_round[0])
+                sf2_l = _loser(sf_round[1])
+
+                def _update_match_players(match, white, blue):
+                    if not match: return
+                    old_w = match.get("white"); old_b = match.get("blue")
+                    w_ch = (old_w.get("id") if old_w else None) != (white.get("id") if white else None)
+                    b_ch = (old_b.get("id") if old_b else None) != (blue.get("id") if blue else None)
+                    if w_ch or b_ch:
+                        match["winner_id"] = None
+                    match["white"] = white
+                    match["blue"] = blue
+
+                # Reuse existing repechage if compatible (Update In Place)
+                if prev_rep and \
+                   prev_rep.get("top") and prev_rep.get("bottom") and \
+                   len(prev_rep["top"].get("rounds",[])) >= 2 and \
+                   len(prev_rep["bottom"].get("rounds",[])) >= 2:
+                    
+                    # Update Top
+                    r0 = prev_rep["top"]["rounds"][0]
+                    if r0 and r0[0]:
+                        _update_match_players(r0[0], qf1_l, qf2_l)
+                    _place_in_bronze(prev_rep["top"]["rounds"], sf2_l)
+
+                    # Update Bottom
+                    r0 = prev_rep["bottom"]["rounds"][0]
+                    if r0 and r0[0]:
+                        _update_match_players(r0[0], qf3_l, qf4_l)
+                    _place_in_bronze(prev_rep["bottom"]["rounds"], sf1_l)
+                    
+                    draw["repechage"] = prev_rep
+                    return
+
+                # Build fresh if no compatible previous structure
+                left = [_make_match(qf1_l, qf2_l, bronze=False),
+                        {"white": None, "blue": None, "winner_id": None, "bronze": True}]
                 right = [_make_match(qf3_l, qf4_l, bronze=False),
                          {"white": None, "blue": None, "winner_id": None, "bronze": True}]
                 draw["repechage"] = {
