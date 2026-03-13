@@ -74,6 +74,24 @@ class MatchEngine:
     def toggle(self):
         self.stop() if self.running else self.start()
 
+    def sono_mama(self):
+        """Sono-mama: pause both match timer and osaekomi."""
+        if not self.running or self.finished:
+            return
+        self.stop()
+        if self.osaekomi:
+            self.osaekomi_paused = True
+        self.on_update()
+
+    def yoshi(self):
+        """Yoshi: resume both match timer and osaekomi."""
+        if self.finished:
+            return
+        self.start()
+        if self.osaekomi:
+            self.osaekomi_paused = False
+        self.on_update()
+
     def _step_one_second(self):
         if not self.golden:
             self.time_left = max(0, self.time_left-1)
@@ -86,9 +104,8 @@ class MatchEngine:
                     self._resolve_deadlock()
         else:
             self.golden_elapsed += 1
-        if self.osaekomi and not self.osaekomi_paused:
-            self.osaekomi_elapsed += 1
-            self._check_osaekomi()
+        
+        # Osaekomi is now handled smoothly in tick()
         self._check_win()
 
     def tick(self):
@@ -103,10 +120,18 @@ class MatchEngine:
         self._last_tick_mono = now
         if dt <= 0:
             return
+
+        # Smoothly update osaekomi to avoid "stepping" lag
+        if self.osaekomi and not self.osaekomi_paused:
+            self.osaekomi_elapsed += dt
+            self._check_osaekomi()
+
         # Avoid unbounded catch-up loops if the app was suspended.
         self._tick_accum = min(self._tick_accum + dt, 3600.0)
         steps = int(self._tick_accum)
         if steps <= 0:
+            # If osaekomi is running, we still want to update the UI for the smooth bar
+            if self.osaekomi: self.on_update()
             return
         self._tick_accum -= steps
         for _ in range(steps):

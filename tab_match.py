@@ -192,8 +192,8 @@ class MatchTab(QWidget):
                            on_osae_w   = lambda: self.engine.start_osaekomi("white"),
                            on_osae_b   = lambda: self.engine.start_osaekomi("blue"),
                            on_toketa   = self.engine.stop_osaekomi,
-                           on_sono_mama= self.engine.pause_osaekomi,
-                           on_yoshi    = self.engine.resume_osaekomi,
+                           on_sono_mama= self.engine.sono_mama,
+                           on_yoshi    = self.engine.yoshi,
                            on_undo     = self._undo,
                            on_reset    = self._reset,
                            on_save     = self._save)
@@ -774,9 +774,9 @@ class CenterControl(QWidget):
         # Osaekomi
         if engine.osaekomi:
             if engine.osaekomi_paused:
-                self.osa_bar.setText(f"HOLD PAUSED  {engine.osaekomi_elapsed}s / 20s")
+                self.osa_bar.setText(f"HOLD PAUSED  {int(engine.osaekomi_elapsed)}s / 20s")
             else:
-                self.osa_bar.setText(f"HOLD  {engine.osaekomi_elapsed}s / 20s")
+                self.osa_bar.setText(f"HOLD  {int(engine.osaekomi_elapsed)}s / 20s")
             self.btn_toketa.show()
             self.btn_hold_blue.setEnabled(False)
             self.btn_hold_white.setEnabled(False)

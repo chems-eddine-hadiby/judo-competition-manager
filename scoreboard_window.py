@@ -265,8 +265,12 @@ class AthleteRow(QWidget):
 
         # ── Penalty card icon ─────────────────────────────────────────────
         if self.shido > 0 or self.hansoku:
-            n    = min(3, self.shido) if not self.hansoku else 3
-            face = _CARD_RED if (self.hansoku or self.shido >= 3) else _CARD_FACE
+            is_red = (self.hansoku or self.shido >= 3)
+            face   = _CARD_RED if is_red else _CARD_FACE
+            # For hansokumake, IJF display usually shows a single red card.
+            # For shido, we show 1 or 2 yellow cards stacked.
+            n      = 1 if is_red else min(2, self.shido)
+            
             cz_h = int(H * 0.72)
             cz_w = int(card_zw * 0.85)
             cz_x = card_zx + (card_zw - cz_w) // 2
@@ -284,12 +288,18 @@ class AthleteRow(QWidget):
 
         # ── Osaekomi bar (thin strip at bottom) ───────────────────────────
         if self.osaekomi:
-            bar_h = max(5, int(H * 0.07))
+            bar_h = max(5, int(H * 0.12))
             pct   = min(1.0, self.osae_sec / 20.0)
             p.fillRect(0, H - bar_h, W, bar_h, _qc(_OSAE_BG))
             fc = (_qc("#ff3300") if self.osae_sec >= 20 else
                   _qc("#ff9900") if self.osae_sec >= 10 else _qc(_OSAE_FILL))
             p.fillRect(0, H - bar_h, int(W * pct), bar_h, fc)
+            
+            # Digital counter
+            t_fnt = QFont("Arial Black", max(10, int(bar_h * 1.5)), QFont.Weight.Black)
+            p.setFont(t_fnt); p.setPen(_qc("#000000"))
+            p.drawText(QRect(W - int(W*0.15), H - bar_h - int(bar_h*1.5), int(W*0.12), int(bar_h*2)), 
+                       Qt.AlignRight | Qt.AlignBottom, str(int(self.osae_sec)))
 
         # ── Winner badge ──────────────────────────────────────────────────
         if self.is_winner and not self.ippon:
@@ -321,13 +331,16 @@ class BottomBar(QWidget):
         self.finished : bool = False
         self.osaekomi : bool = False
         self.osae_sec : int  = 0
+        self.osae_paused : bool = False
         self.stage_text : str = ""
         self.winner_side : Optional[str] = None
+        self._flash_tick = 0
 
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         W, H = self.width(), self.height()
+        self._flash_tick = (self._flash_tick + 1) % 10
 
         grad = QLinearGradient(0, 0, 0, H)
         grad.setColorAt(0.0, _qc(_BOTTOM_BG)); grad.setColorAt(1.0, _qc(_BOTTOM_BG2))
@@ -369,11 +382,18 @@ class BottomBar(QWidget):
             display = self.time_str
 
         # The timer in the image is very large and bold — greenish, about 70% of bar height
-        t_sz = max(16, int(H * 0.56))
+        t_sz = max(16, int(H * 0.90))
         fnt_t = QFont("Arial", t_sz, QFont.Weight.Bold)
         p.setFont(fnt_t); p.setPen(t_col)
-        p.drawText(QRect(int(W * 0.22), 0, int(W * 0.56), H),
+        p.drawText(QRect(int(W * 0.28), 0, int(W * 0.44), H),
                    Qt.AlignCenter, display)
+
+        # ── Sono-mama indicator ───────────────────────────────────────────
+        if self.osae_paused and (self._flash_tick < 5):
+            fnt_sm = QFont("Arial Black", max(12, int(H * 0.30)), QFont.Weight.Black)
+            p.setFont(fnt_sm); p.setPen(_qc("#FFD600"))
+            p.drawText(QRect(int(W * 0.30), int(H * 0.75), int(W * 0.40), int(H * 0.25)),
+                       Qt.AlignCenter, "SONO-MAMA")
 
         # ── Status indicator (right) ──────────────────────────────────────
         stage_label = self.stage_text or ""
@@ -541,7 +561,7 @@ class ScoreboardWindow(QMainWindow):
         self.blue_row   = AthleteRow(is_white=False)
         self.win_banner = WinnerBanner()
         self.bottom     = BottomBar()
-        self.bottom.setFixedHeight(80)
+        self.bottom.setFixedHeight(140)
 
         v.addWidget(self.header)
         v.addWidget(_Divider(2, "#000000"))
@@ -642,11 +662,13 @@ class ScoreboardWindow(QMainWindow):
             engine.osaekomi is not None,
             int(engine.osaekomi_elapsed or 0),
             engine.winner,
+            bool(engine.osaekomi_paused),
         )
 
     def _apply_bottom_state(self, state):
         (self.bottom.category, self.bottom.time_str, self.bottom.golden, self.bottom.running,
-         self.bottom.finished, self.bottom.osaekomi, self.bottom.osae_sec, self.bottom.winner_side) = state
+         self.bottom.finished, self.bottom.osaekomi, self.bottom.osae_sec, self.bottom.winner_side,
+         self.bottom.osae_paused) = state
         self.bottom.stage_text = ""
 
     def _winner_state(self, engine, white_player, blue_player):

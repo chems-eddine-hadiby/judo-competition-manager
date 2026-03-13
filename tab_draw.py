@@ -19,19 +19,30 @@ C_BG="#0a0a12"; C_PANEL="#0e0e1a"; C_CARD="#111120"
 C_RED="#D32F2F"; C_BLUE="#1565C0"; C_TEXT="#FFFFFF"
 C_DIM="#666688"; C_BORDER="#1e1e35"; C_GOLD="#FFD600"
 C_GREEN="#2E7D32"
-CARD_H = 108
-CARD_SPACING = 20
 
-def _l(t="",sz=11,bold=False,col=C_TEXT):
-    lbl=QLabel(t); w="bold" if bold else "normal"
-    lbl.setStyleSheet(f"color:{col};background:transparent;font-size:{sz}px;font-weight:{w};")
+# Professional Draw Palette (White Background)
+P_BG = "#FFFFFF"; P_TEXT = "#1A1A1A"; P_DIM = "#999999"
+P_BORDER = "#E0E0E0"; P_LINE = "#000000"
+P_BLUE_BG = "#1976D2"; P_WHITE_BG = "#F8F9FA"
+P_WIN_BG = "#F1F8E9"; P_GOLD = "#BF8F00"
+B_RADIUS = "10px"; B_RADIUS_SM = "6px"
+
+CARD_H = 112
+CARD_SPACING = 24
+
+def _l(t="",sz=11,bold=False,col=C_TEXT, p=False):
+    lbl=QLabel(t); w="600" if bold else "400"
+    c = col if not p else P_TEXT
+    lbl.setStyleSheet(f"color:{c};background:transparent;font-size:{sz}px;font-weight:{w};font-family:'Segoe UI', Arial;")
     return lbl
 
-def _btn(t,color,bg="#111130",mh=32,sz=10):
+def _btn(t,color,bg="#111130",mh=32,sz=10, rounded=True):
     b=QPushButton(t); b.setMinimumHeight(mh)
+    rad = B_RADIUS_SM if rounded else "0px"
     b.setStyleSheet(f"QPushButton{{background:{bg};color:{color};border:1px solid {color};"
-                    f"border-radius:3px;font-size:{sz}px;font-weight:bold;padding:3px 8px;}}"
-                    f"QPushButton:hover{{background:{color};color:#000;}}")
+                    f"border-radius:{rad};font-size:{sz}px;font-weight:bold;padding:4px 12px;}}"
+                    f"QPushButton:hover{{background:{color};color:#fff;}}"
+                    f"QPushButton:pressed{{background-color:rgba(255,255,255,0.1);}}")
     return b
 
 
@@ -215,10 +226,10 @@ class DrawTab(QWidget):
         self.lbl_title = _l("← Select a category", 18, True, C_DIM)
         self.rep_combo = QComboBox()
         self.rep_combo.addItems(["simple", "double"])
-        self.rep_combo.setFixedHeight(28)
+        self.rep_combo.setFixedHeight(30)
         self.rep_combo.setStyleSheet(
-            "QComboBox{background:#111130;color:#fff;border:1px solid #2a2a4a;"
-            "border-radius:3px;padding:4px 8px;font-size:10px;}"
+            f"QComboBox{{background:#1a1a3a;color:#fff;border:1px solid #2a2a4a;"
+            f"border-radius:{B_RADIUS_SM};padding:4px 12px;font-size:10px;}}"
             "QComboBox::drop-down{border:none;}"
             "QComboBox QAbstractItemView{background:#111130;color:#fff;"
             "selection-background-color:#1a1a3a;}")
@@ -228,30 +239,30 @@ class DrawTab(QWidget):
 
         self.btn_gen   = QPushButton("GENERATE DRAW")
         self.btn_gen.setEnabled(False)
-        self.btn_gen.setMinimumHeight(36)
+        self.btn_gen.setMinimumHeight(38)
         self.btn_gen.setStyleSheet(
-            f"QPushButton{{background:{C_RED};color:#fff;border:none;border-radius:4px;"
-            f"font-size:12px;font-weight:bold;padding:4px 18px;}}"
-            f"QPushButton:hover{{background:#a01020;}} QPushButton:disabled{{background:#2a0a0a;color:#555;}}")
+            f"QPushButton{{background:{C_RED};color:#fff;border:none;border-radius:{B_RADIUS_SM};"
+            f"font-size:12px;font-weight:bold;padding:4px 20px;}}"
+            f"QPushButton:hover{{background:#e53935;}} QPushButton:disabled{{background:#2a0a0a;color:#555;}}")
         self.btn_gen.clicked.connect(self._generate)
         self.btn_champ = QPushButton("SET CHAMPIONS")
         self.btn_champ.setEnabled(False)
-        self.btn_champ.setMinimumHeight(32)
+        self.btn_champ.setMinimumHeight(34)
         self.btn_champ.setStyleSheet(
-            "QPushButton {background:#222;color:#fff;border:none;border-radius:4px;"
-            "font-size:11px;font-weight:bold;padding:4px 14px;}"
-            "QPushButton:hover {background:#333;}")
+            f"QPushButton {{background:#333;color:#fff;border:none;border-radius:{B_RADIUS_SM};"
+            "font-size:11px;font-weight:bold;padding:4px 16px;}"
+            "QPushButton:hover {background:#444;}")
         self.btn_champ.clicked.connect(self._edit_champions)
         self.btn_print = QPushButton("PRINT DRAW")
         self.btn_print.setEnabled(False)
-        self.btn_print.setMinimumHeight(32)
+        self.btn_print.setMinimumHeight(34)
         self.btn_print.setStyleSheet(
-            "QPushButton {background:#222;color:#fff;border:none;border-radius:4px;"
-            "font-size:11px;font-weight:bold;padding:4px 14px;}"
-            "QPushButton:hover {background:#333;}")
+            f"QPushButton {{background:#333;color:#fff;border:none;border-radius:{B_RADIUS_SM};"
+            "font-size:11px;font-weight:bold;padding:4px 16px;}"
+            "QPushButton:hover {background:#444;}")
         self.btn_print.clicked.connect(self._print_draw)
         hdr.addWidget(self.lbl_title, stretch=1)
-        hdr.addWidget(QLabel("Repechage:"))
+        hdr.addWidget(_l("Repechage:", 10, True, C_DIM))
         hdr.addWidget(self.rep_combo)
         hdr.addWidget(self.btn_gen)
         hdr.addWidget(self.btn_champ)
@@ -260,11 +271,11 @@ class DrawTab(QWidget):
 
         self.bracket_scroll = QScrollArea()
         self.bracket_scroll.setWidgetResizable(True)
-        self.bracket_scroll.setStyleSheet(f"background:{C_BG};border:1px solid {C_BORDER};")
+        self.bracket_scroll.setStyleSheet(f"background:{P_BG}; border:none;")
         self.bracket_widget = QWidget()
-        self.bracket_widget.setStyleSheet(f"background:{C_BG};")
+        self.bracket_widget.setStyleSheet(f"background:{P_BG};")
         self.bracket_vbox = QVBoxLayout(self.bracket_widget)
-        self.bracket_vbox.setContentsMargins(16,16,16,16)
+        self.bracket_vbox.setContentsMargins(40,40,40,40)
         self.bracket_vbox.setSpacing(14)
         self.bracket_vbox.addStretch()
         self.bracket_scroll.setWidget(self.bracket_widget)
@@ -294,20 +305,22 @@ class DrawTab(QWidget):
                 btn = QPushButton(f"  {weight}  {'♂' if gender=='male' else '♀'}  ({len(pool)})")
                 btn.setCheckable(True)
                 btn.setChecked(is_active)
-                btn.setMinimumHeight(36)
-                bg  = "#1a0810" if is_active else C_PANEL
-                bdr = C_RED     if is_active else C_BORDER
+                btn.setMinimumHeight(40)
+                bg  = "#2a0810" if is_active else "transparent"
+                bdr = C_RED     if is_active else "transparent"
+                txt = "#fff"    if is_active else "#aaa"
                 btn.setStyleSheet(
-                    f"QPushButton{{background:{bg};color:#ccc;border-left:3px solid {bdr};"
-                    f"text-align:left;font-size:12px;font-weight:bold;padding:4px 8px;}}"
-                    f"QPushButton:hover{{background:#1a1a2e;border-left-color:{C_RED};}}"
-                    f"QPushButton:checked{{background:#1a0810;border-left-color:{C_RED};}}")
+                    f"QPushButton{{background:{bg};color:{txt};border-left:4px solid {bdr};"
+                    f"text-align:left;font-size:12px;font-weight:600;padding:4px 12px;"
+                    f"margin:1px 4px;border-radius:{B_RADIUS_SM};}}"
+                    f"QPushButton:hover{{background:#1a1a32;color:#fff;}}"
+                    f"QPushButton:checked{{background:#2a0810;color:#fff;border-left-color:{C_RED};}}")
                 btn.clicked.connect(lambda _, k=key: self._select(k))
                 self.cat_vbox.insertWidget(self.cat_vbox.count()-1, btn)
                 self._cat_btns[key] = btn
 
                 if has_draw:
-                    dot = _l("   ✓ draw ready", 8, False, C_RED)
+                    dot = _l("    ✓ Draw Ready", 8, False, C_RED)
                     self.cat_vbox.insertWidget(self.cat_vbox.count()-1, dot)
 
     # ── Category selection ─────────────────────────────────────────────────────
@@ -429,25 +442,36 @@ class DrawTab(QWidget):
         rep = draw_data.get("repechage")
         if rep:
             rep_widget = QWidget(); rep_widget.setStyleSheet("background:transparent;")
-            rep_v = QVBoxLayout(rep_widget); rep_v.setContentsMargins(0,0,0,0); rep_v.setSpacing(8)
-            rep_label = _l("REPECHAGE", 12, True, C_GOLD)
+            rep_v = QVBoxLayout(rep_widget); rep_v.setContentsMargins(0,0,0,0); rep_v.setSpacing(16)
+            
+            # Elegant Divider
+            line = QFrame(); line.setFrameShape(QFrame.HLine)
+            line.setStyleSheet(f"background:{P_BORDER};"); line.setFixedHeight(1)
+            rep_v.addWidget(line)
+
+            rep_label = _l("REPECHAGE", 12, True, p=True)
             rep_label.setAlignment(Qt.AlignCenter)
             rep_v.addWidget(rep_label)
-            rep_row = QHBoxLayout(); rep_row.setSpacing(20)
-            for side_key in ("top","bottom"):
-                side = rep.get(side_key)
-                if not side: continue
-                rep_row.addWidget(self._render_rounds_widget(side.get("rounds", []),
-                                                            context="repechage",
-                                                            side_key=side_key))
-            rep_v.addLayout(rep_row)
+            
+            top_r = rep.get("top", {}).get("rounds", [])
+            bot_r = rep.get("bottom", {}).get("rounds", [])
+
+            if top_r:
+                rep_v.addWidget(self._render_rounds_widget(top_r, context="repechage", side_key="top"))
+            
+            if top_r and bot_r:
+                rep_v.addSpacing(16)
+
+            if bot_r:
+                rep_v.addWidget(self._render_rounds_widget(bot_r, context="repechage", side_key="bottom"))
+            
             self.bracket_vbox.insertWidget(self.bracket_vbox.count()-1, rep_widget)
 
 
     def _render_bracket_section(self, title, rounds, context="main", draw_data=None):
         sec = QWidget(); sec.setStyleSheet("background:transparent;")
-        v = QVBoxLayout(sec); v.setContentsMargins(0,0,0,0); v.setSpacing(8)
-        lbl = _l(title, 12, True, C_TEXT)
+        v = QVBoxLayout(sec); v.setContentsMargins(0,0,0,0); v.setSpacing(12)
+        lbl = _l(title, 12, True, p=True)
         lbl.setAlignment(Qt.AlignCenter)
         v.addWidget(lbl)
         v.addWidget(self._render_rounds_widget(rounds, context=context, draw_data=draw_data))
@@ -479,6 +503,34 @@ class DrawTab(QWidget):
         if (draw_data or {}).get("type") == "pool5":
             size = -5
         base_step = CARD_H + CARD_SPACING
+        
+        # Calculate dynamic steps based on round density
+        # If matches count doesn't decrease (linear flow), keep spacing same.
+        steps = [base_step]
+        for i in range(1, n):
+            prev_len = len(rounds[i-1])
+            curr_len = len(rounds[i])
+            if context == "repechage" and curr_len == prev_len:
+                steps.append(steps[-1])
+            else:
+                steps.append(steps[-1] * 2)
+
+        # Pre-calculate centers for all rounds to pass to connectors
+        all_centers = []
+        for ri in range(n):
+            round_list = rounds[ri]
+            step = steps[ri]
+            top_offset = 22 if n > 1 else 0
+            top_pad = max(0, (step - CARD_H) // 2)
+            
+            # Replicate the Y logic used in the loop below
+            r_centers = []
+            y = top_offset + top_pad
+            for _ in range(len(round_list)):
+                r_centers.append(y + CARD_H // 2)
+                y += step
+            all_centers.append(r_centers)
+
         for ri, round_list in enumerate(rounds):
             col = QWidget(); col.setFixedWidth(420)
             col.setStyleSheet("background:transparent;")
@@ -490,20 +542,20 @@ class DrawTab(QWidget):
                     rlbl = "BRONZE" if ri == n-1 else "REPECHAGE"
                 else:
                     rlbl = self._round_label(size, ri, n)
-                hl = _l(rlbl, 9, True, C_DIM)
+                hl = _l(rlbl, 9, True, p=True)
                 hl.setAlignment(Qt.AlignCenter)
                 cl.addWidget(hl)
                 top_offset = 22
-            step = base_step * (2 ** ri)
+            
+            step = steps[ri]
             top_pad = max(0, (step - CARD_H) // 2)
             cl.addSpacing(top_pad)
-            centers = []
+            
             y = top_offset + top_pad
             for mi, match in enumerate(round_list):
                 if match is None:
                     card = self._make_empty_card()
                     cl.addWidget(card)
-                    centers.append(y + CARD_H // 2)
                     cl.addSpacing(step - CARD_H)
                     y += step
                     continue
@@ -513,7 +565,6 @@ class DrawTab(QWidget):
                     stage_label = self._round_label(size, ri, n)
                 card = self._make_match_card(match, ri, mi, context=context, side_key=side_key, round_label=stage_label)
                 cl.addWidget(card)
-                centers.append(y + CARD_H // 2)
                 cl.addSpacing(step - CARD_H)
                 y += step
 
@@ -521,7 +572,10 @@ class DrawTab(QWidget):
             h.addWidget(col)
 
             if ri < n-1:
-                spacer = ConnectorWidget(centers)
+                # Pass current and next round centers to draw proper tree lines
+                curr_c = all_centers[ri]
+                next_c = all_centers[ri+1] if (ri + 1) < len(all_centers) else []
+                spacer = ConnectorWidget(curr_c, next_centers=next_c)
                 spacer.setFixedWidth(22)
                 spacer.setStyleSheet("background:transparent;")
                 h.addWidget(spacer)
@@ -529,33 +583,40 @@ class DrawTab(QWidget):
 
     def _make_empty_card(self):
         card = QFrame()
-        card.setStyleSheet(f"background:{C_PANEL};border:1px dashed {C_BORDER};border-radius:4px;")
+        card.setStyleSheet(f"background:{P_WHITE_BG};border-radius:{B_RADIUS};")
         card.setFixedHeight(CARD_H)
-        cl = QVBoxLayout(card); cl.setContentsMargins(6,6,6,6); cl.setSpacing(3)
+        cl = QVBoxLayout(card); cl.setContentsMargins(8,8,8,8); cl.setSpacing(4)
         for _ in range(2):
-            row = QLabel("  TBD")
-            row.setStyleSheet(f"color:{C_DIM};background:#0a0a16;font-size:14px;padding:8px;")
+            row = QLabel("  —")
+            row.setStyleSheet(f"color:{P_DIM};background:transparent;font-size:13px;padding:8px;")
             cl.addWidget(row)
         return card
 
     def _render_round_robin(self, draw_data):
         sec = QWidget(); sec.setStyleSheet("background:transparent;")
-        v = QVBoxLayout(sec); v.setContentsMargins(0,0,0,0); v.setSpacing(8)
-        lbl = _l("ROUND ROBIN", 12, True, C_TEXT)
+        v = QVBoxLayout(sec); v.setContentsMargins(0,0,0,0); v.setSpacing(12)
+        lbl = _l("ROUND ROBIN", 12, True, p=True)
         lbl.setAlignment(Qt.AlignCenter)
         v.addWidget(lbl)
 
         matches = draw_data.get("matches", [])
-        grid = QGridLayout(); grid.setHorizontalSpacing(8); grid.setVerticalSpacing(6)
-        grid.addWidget(_l("ATHLETE A", 9, True, C_DIM), 0, 0)
-        grid.addWidget(_l("ATHLETE B", 9, True, C_DIM), 0, 1)
-        grid.addWidget(_l("ACTIONS", 9, True, C_DIM), 0, 2)
+        grid = QGridLayout(); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(10)
+        grid.addWidget(_l("ATHLETE A", 9, True, p=True), 0, 0)
+        grid.addWidget(_l("ATHLETE B", 9, True, p=True), 0, 1)
+        grid.addWidget(_l("ACTIONS", 9, True, p=True), 0, 2)
 
         players = {p.get("id"): p for p in db.load_players()}
+        row_idx = 1
         for i, m in enumerate(matches):
+            # Line separator
+            line = QFrame(); line.setFrameShape(QFrame.HLine)
+            line.setStyleSheet("background:#EEEEEE;"); line.setFixedHeight(1)
+            grid.addWidget(line, row_idx, 0, 1, 3)
+            row_idx += 1
+
             p1 = m.get("p1"); p2 = m.get("p2")
-            grid.addWidget(_l(p1.get("name","TBD") if p1 else "TBD", 10), i+1, 0)
-            grid.addWidget(_l(p2.get("name","TBD") if p2 else "TBD", 10), i+1, 1)
+            grid.addWidget(_l(p1.get("name","TBD") if p1 else "TBD", 10, p=True), row_idx, 0)
+            grid.addWidget(_l(p2.get("name","TBD") if p2 else "TBD", 10, p=True), row_idx, 1)
             if p1 and p2:
                 action_col = QVBoxLayout(); action_col.setSpacing(4)
                 g, w = (self._active_key.split("-",1) if self._active_key else ("",""))
@@ -563,45 +624,55 @@ class DrawTab(QWidget):
                 if m.get("winner_id"):
                     win = players.get(m.get("winner_id"))
                     win_name = win.get("name","—") if win else "—"
-                    win_lbl = _l(f"WINNER: {win_name}", 9, True, C_GOLD)
+                    win_lbl = _l(f"✓ Winner: {win_name}", 10, True, P_GOLD, p=True)
                     action_col.addWidget(win_lbl)
                 else:
-                    start_btn = _btn("▶ START MATCH", C_RED, "#14060a", 26, 9)
+                    start_btn = _btn("▶ START", C_RED, "#fcfcfc", 28, 9)
                     start_btn.clicked.connect(
                         lambda _, wp=p1, bp=p2, c=cat_label: self.on_start_match(wp["id"], bp["id"], c, "ROUND ROBIN"))
-                    b1 = _btn(f"Winner: {p1['name'][:12]}", C_DIM, "#0e0e1e", 22, 9)
-                    b2 = _btn(f"Winner: {p2['name'][:12]}", C_DIM, "#0e0e1e", 22, 9)
+                    b1 = _btn(f"Winner: {p1['name'][:12]}", P_DIM, "white", 24, 8)
+                    b2 = _btn(f"Winner: {p2['name'][:12]}", P_DIM, "white", 24, 8)
                     b1.clicked.connect(lambda _, pid=p1["id"], mi=i: self._mark_rr_winner(pid, mi))
                     b2.clicked.connect(lambda _, pid=p2["id"], mi=i: self._mark_rr_winner(pid, mi))
                     action_col.addWidget(start_btn)
-                    action_col.addWidget(b1)
-                    action_col.addWidget(b2)
+                    row_btns = QHBoxLayout(); row_btns.setSpacing(4)
+                    row_btns.addWidget(b1); row_btns.addWidget(b2)
+                    action_col.addLayout(row_btns)
                 w = QWidget(); w.setLayout(action_col)
-                grid.addWidget(w, i+1, 2)
+                grid.addWidget(w, row_idx, 2)
+            row_idx += 1
+        
         v.addLayout(grid)
         self.bracket_vbox.insertWidget(self.bracket_vbox.count()-1, sec)
 
     def _render_pool5(self, draw_data):
         sec = QWidget(); sec.setStyleSheet("background:transparent;")
-        v = QVBoxLayout(sec); v.setContentsMargins(0,0,0,0); v.setSpacing(12)
-        lbl = _l("POOLS (5 ATHLETES)", 12, True, C_TEXT)
+        v = QVBoxLayout(sec); v.setContentsMargins(0,0,0,0); v.setSpacing(16)
+        lbl = _l("POOLS (5 ATHLETES)", 14, True, p=True)
         lbl.setAlignment(Qt.AlignCenter)
         v.addWidget(lbl)
 
         def _pool_table(title, matches, stage_label, stage_key):
             box = QWidget()
-            lv = QVBoxLayout(box); lv.setContentsMargins(0,0,0,0); lv.setSpacing(6)
-            t = _l(title, 11, True, C_GOLD)
+            lv = QVBoxLayout(box); lv.setContentsMargins(0,0,0,0); lv.setSpacing(8)
+            t = _l(title, 11, True, P_GOLD, p=True)
             lv.addWidget(t)
-            grid = QGridLayout(); grid.setHorizontalSpacing(8); grid.setVerticalSpacing(6)
-            grid.addWidget(_l("ATHLETE A", 9, True, C_DIM), 0, 0)
-            grid.addWidget(_l("ATHLETE B", 9, True, C_DIM), 0, 1)
-            grid.addWidget(_l("ACTIONS", 9, True, C_DIM), 0, 2)
+            grid = QGridLayout(); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(10)
+            grid.addWidget(_l("ATHLETE A", 9, True, p=True), 0, 0)
+            grid.addWidget(_l("ATHLETE B", 9, True, p=True), 0, 1)
+            grid.addWidget(_l("ACTIONS", 9, True, p=True), 0, 2)
             players = {p.get("id"): p for p in db.load_players()}
+            row_idx = 1
             for i, m in enumerate(matches):
+                # Line separator
+                line = QFrame(); line.setFrameShape(QFrame.HLine)
+                line.setStyleSheet("background:#EEEEEE;"); line.setFixedHeight(1)
+                grid.addWidget(line, row_idx, 0, 1, 3)
+                row_idx += 1
+
                 p1 = m.get("p1"); p2 = m.get("p2")
-                grid.addWidget(_l(p1.get("name","TBD") if p1 else "TBD", 10), i+1, 0)
-                grid.addWidget(_l(p2.get("name","TBD") if p2 else "TBD", 10), i+1, 1)
+                grid.addWidget(_l(p1.get("name","TBD") if p1 else "TBD", 10, p=True), row_idx, 0)
+                grid.addWidget(_l(p2.get("name","TBD") if p2 else "TBD", 10, p=True), row_idx, 1)
                 if p1 and p2:
                     action_col = QVBoxLayout(); action_col.setSpacing(4)
                     g, w = (self._active_key.split("-",1) if self._active_key else ("",""))
@@ -609,37 +680,39 @@ class DrawTab(QWidget):
                     if m.get("winner_id"):
                         win = players.get(m.get("winner_id"))
                         win_name = win.get("name","-") if win else "-"
-                        win_lbl = _l(f"WINNER: {win_name}", 9, True, C_GOLD)
+                        win_lbl = _l(f"✓ {win_name}", 10, True, P_GOLD, p=True)
                         action_col.addWidget(win_lbl)
                     else:
-                        start_btn = _btn("▶ START MATCH", C_RED, "#14060a", 26, 9)
+                        start_btn = _btn("▶ START", C_RED, "#fcfcfc", 28, 9)
                         start_btn.clicked.connect(
                             lambda _, wp=p1, bp=p2, c=cat_label, st=stage_label:
                                 self.on_start_match(wp["id"], bp["id"], c, st))
-                        b1 = _btn(f"Winner: {p1['name'][:12]}", C_DIM, "#0e0e1e", 22, 9)
-                        b2 = _btn(f"Winner: {p2['name'][:12]}", C_DIM, "#0e0e1e", 22, 9)
+                        b1 = _btn(f"Winner: {p1['name'][:10]}", P_DIM, "white", 24, 8)
+                        b2 = _btn(f"Winner: {p2['name'][:10]}", P_DIM, "white", 24, 8)
                         b1.clicked.connect(lambda _, pid=p1["id"], mi=i, sk=stage_key: self._mark_pool5_winner(pid, sk, mi))
                         b2.clicked.connect(lambda _, pid=p2["id"], mi=i, sk=stage_key: self._mark_pool5_winner(pid, sk, mi))
                         action_col.addWidget(start_btn)
-                        action_col.addWidget(b1)
-                        action_col.addWidget(b2)
+                        row_btns = QHBoxLayout(); row_btns.setSpacing(4)
+                        row_btns.addWidget(b1); row_btns.addWidget(b2)
+                        action_col.addLayout(row_btns)
                     w = QWidget(); w.setLayout(action_col)
-                    grid.addWidget(w, i+1, 2)
+                    grid.addWidget(w, row_idx, 2)
+                row_idx += 1
             lv.addLayout(grid)
             return box
 
         pools = draw_data.get("pools", {})
-        pool_row = QHBoxLayout(); pool_row.setSpacing(16)
-        pool_row.addWidget(_pool_table("POOL A (2)", pools.get("A", {}).get("matches", []), "POOL A", "pool_a"))
-        pool_row.addWidget(_pool_table("POOL B (3)", pools.get("B", {}).get("matches", []), "POOL B", "pool_b"))
+        pool_row = QHBoxLayout(); pool_row.setSpacing(24)
+        pool_row.addWidget(_pool_table("POOL A", pools.get("A", {}).get("matches", []), "POOL A", "pool_a"))
+        pool_row.addWidget(_pool_table("POOL B", pools.get("B", {}).get("matches", []), "POOL B", "pool_b"))
         v.addLayout(pool_row)
 
         # Semis and final
         semis = draw_data.get("semis", [])
         final = draw_data.get("final")
         sec2 = QWidget(); sec2.setStyleSheet("background:transparent;")
-        v2 = QVBoxLayout(sec2); v2.setContentsMargins(0,0,0,0); v2.setSpacing(8)
-        v2.addWidget(_l("SEMI-FINALS / FINAL", 12, True, C_TEXT, ))
+        v2 = QVBoxLayout(sec2); v2.setContentsMargins(0,0,0,0); v2.setSpacing(12)
+        v2.addWidget(_l("SEMI-FINALS / FINAL", 12, True, p=True))
         rounds = [semis, [final] if final else []]
         v2.addWidget(self._render_rounds_widget(rounds, context="pool5", draw_data=draw_data))
         v.addWidget(sec2)
@@ -648,9 +721,9 @@ class DrawTab(QWidget):
 
     def _make_match_card(self, match, ri, mi, context="main", side_key=None, round_label=None):
         card = QFrame()
-        card.setStyleSheet(f"background:{C_PANEL};border:1px solid {C_BORDER};border-radius:4px;")
+        card.setStyleSheet(f"background:transparent;")
         card.setFixedHeight(CARD_H)
-        cl = QVBoxLayout(card); cl.setContentsMargins(6,6,6,6); cl.setSpacing(3)
+        cl = QVBoxLayout(card); cl.setContentsMargins(0,0,0,0); cl.setSpacing(6)
 
         white_p = match.get("white")
         blue_p  = match.get("blue")
@@ -682,23 +755,26 @@ class DrawTab(QWidget):
         for side, player in rows:
             if player is None and is_bye and side=="blue":
                 bye_row = QLabel("  BYE")
-                bye_row.setStyleSheet(f"color:{C_DIM};background:#08080e;font-size:14px;padding:8px;")
+                bye_row.setStyleSheet(f"color:{P_DIM};background:{P_WHITE_BG};font-size:13px;padding:8px;border-radius:{B_RADIUS_SM};")
                 cl.addWidget(bye_row)
                 continue
 
             is_w = (side == "white")
-            accent = "#cccccc" if is_w else "#3a6fcc"
+            accent = "#FFFFFF" if is_w else P_BLUE_BG
             won    = winner == player.get("id") if player else False
-            row_bg = ("#081808" if (won and is_w) else "#080818" if (won and not is_w) else "#0a0a18")
-            bdr    = (C_GREEN if (won and is_w) else C_BLUE if (won and not is_w) else C_BORDER)
+            
+            row_bg = P_WIN_BG if won else P_WHITE_BG
+            bdr_color = (C_GREEN if is_w else C_BLUE) if won else "#EEE"
+            bdr_width = "4px" if won else "3px"
 
             row = QWidget()
-            row.setStyleSheet(f"background:{row_bg};border-left:3px solid {bdr};")
-            row.setMinimumHeight(36)
-            rl  = QHBoxLayout(row); rl.setContentsMargins(6,4,6,4); rl.setSpacing(6)
+            row.setStyleSheet(f"background:{row_bg}; border-left:{bdr_width} solid {bdr_color}; border-radius:{B_RADIUS_SM};")
+            row.setMinimumHeight(38)
+            rl  = QHBoxLayout(row); rl.setContentsMargins(10,4,8,4); rl.setSpacing(10)
 
             dot = QLabel(); dot.setFixedSize(10,10)
-            dot.setStyleSheet(f"background:{accent};border-radius:5px;")
+            dot_bdr = "#CCC" if is_w else "transparent"
+            dot.setStyleSheet(f"background:{accent}; border:1px solid {dot_bdr}; border-radius:5px;")
             rl.addWidget(dot)
 
             if player:
@@ -708,25 +784,26 @@ class DrawTab(QWidget):
                     name_text = f"{name_text} ({club})"
             else:
                 name_text = "TBD"
+            
             is_champ = player and (player.get("id") in self._champion_ids)
             name_lbl = QLabel(name_text)
-            name_color = C_GOLD if is_champ else ("#fff" if player else C_DIM)
-            name_lbl.setStyleSheet(f"color:{name_color};font-size:14px;font-weight:bold;background:transparent;")
+            name_color = P_GOLD if is_champ else (P_TEXT if player else P_DIM)
+            name_lbl.setStyleSheet(f"color:{name_color};font-size:13px;font-weight:600;background:transparent;")
             fm = QFontMetrics(name_lbl.font())
             name_lbl.setText(fm.elidedText(name_lbl.text(), Qt.ElideRight, 280))
             rl.addWidget(name_lbl, stretch=1)
 
             if won:
-                win_lbl = QLabel("WIN")
-                win_lbl.setStyleSheet(f"color:{C_GOLD};font-size:9px;font-weight:bold;background:transparent;")
+                win_lbl = QLabel("WINNER")
+                win_lbl.setStyleSheet(f"color:{C_GREEN if is_w else C_BLUE};font-size:9px;font-weight:900;background:transparent;")
                 rl.addWidget(win_lbl)
 
             cl.addWidget(row)
 
         if context == "repechage":
             tag = QLabel("BRONZE" if match.get("bronze") else "REPECHAGE")
-            tag.setStyleSheet(f"color:{C_GOLD if match.get('bronze') else C_DIM};"
-                              "font-size:9px;font-weight:bold;background:transparent;")
+            tag.setStyleSheet(f"color:{P_GOLD if match.get('bronze') else P_DIM};"
+                              "font-size:9px;font-weight:bold;background:transparent;margin-left:4px;")
             cl.addWidget(tag)
 
         # Action buttons
@@ -734,19 +811,22 @@ class DrawTab(QWidget):
             g, w = (self._active_key.split("-",1) if self._active_key else ("",""))
             cat_label = f"{'Men' if g=='male' else 'Women'} {w}"
             stage_label = round_label or ""
-            start_btn = _btn("▶ START MATCH", C_RED, "#14060a", 28, 10)
+            start_btn = _btn("▶ START MATCH", C_RED, "white", 30, 9)
             start_btn.clicked.connect(
                 lambda _, wp=white_p, bp=blue_p, c=cat_label, st=stage_label:
                     self.on_start_match(wp["id"], bp["id"], c, st))
             cl.addWidget(start_btn)
         elif not winner and not is_bye:
+            btn_row = QHBoxLayout(); btn_row.setSpacing(4)
             for side, player in [("white",white_p),("blue",blue_p)]:
                 if player:
-                    mb = _btn(f"Winner: {player['name'][:18]}", C_DIM, "#0e0e1e", 24, 9)
+                    mb = _btn(f"Win: {player['name'][:14]}", P_DIM, "white", 24, 8)
                     if context == "repechage":
+                        sk = match.get("_side", side_key)
+                        orig_mi = match.get("_mi", mi)
                         mb.clicked.connect(
-                            lambda _, pid=player["id"], r=ri, m=mi, sk=side_key:
-                                self._mark_rep_winner(pid, r, m, sk))
+                            lambda _, pid=player["id"], r=ri, m=orig_mi, s=sk:
+                                self._mark_rep_winner(pid, r, m, s))
                     elif context == "pool5":
                         mb.clicked.connect(
                             lambda _, pid=player["id"], r=ri, m=mi:
@@ -755,7 +835,9 @@ class DrawTab(QWidget):
                         mb.clicked.connect(
                             lambda _, pid=player["id"], r=ri, m=mi:
                                 self._mark_winner(pid, r, m))
-                    cl.addWidget(mb)
+                    btn_row.addWidget(mb)
+            if btn_row.count() > 0:
+                cl.addLayout(btn_row)
         return card
 
     def _mark_winner(self, winner_id, ri, mi):
@@ -792,28 +874,41 @@ class DrawTab(QWidget):
 
 
 class ConnectorWidget(QWidget):
-    def __init__(self, centers, parent=None):
+    def __init__(self, centers, next_centers=None, parent=None):
         super().__init__(parent)
         self.centers = centers
+        self.next_centers = next_centers or []
         self.setMinimumHeight(40)
 
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w = self.width()
-        x = w // 2
-        pen = QPen(QColor("#ffffff"), 1)
+        mid_x = w // 2
+        pen = QPen(QColor(P_LINE), 1)
         p.setPen(pen)
-        for cy in self.centers:
-            p.drawLine(0, cy, x, cy)
-        for i in range(0, len(self.centers), 2):
-            if i + 1 >= len(self.centers):
-                p.drawLine(x, self.centers[i], w, self.centers[i])
-                continue
-            y1, y2 = self.centers[i], self.centers[i + 1]
-            p.drawLine(x, y1, x, y2)
-            mid = (y1 + y2) // 2
-            p.drawLine(x, mid, w, mid)
+
+        # Draw Elbow Connectors
+        for i, cy in enumerate(self.centers):
+            # Dynamic linking: 
+            # If 1-to-1 mapping (linear flow), link directly.
+            # If N-to-N/2 (bracket), link pairs.
+            if len(self.centers) == len(self.next_centers):
+                target_idx = i
+            else:
+                target_idx = i // 2
+                
+            if target_idx < len(self.next_centers):
+                ty = self.next_centers[target_idx]
+                
+                # Line out from current match (left to mid)
+                p.drawLine(0, cy, mid_x, cy)
+                
+                # Vertical line at mid
+                p.drawLine(mid_x, cy, mid_x, ty)
+                
+                # Line in to next match (mid to right)
+                p.drawLine(mid_x, ty, w, ty)
         p.end()
 
     pass
