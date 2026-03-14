@@ -164,7 +164,49 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(_resource_path("icon.ico")))
         self.resize(1360, 860)
         self.setMinimumSize(1100, 700)
-        self.setStyleSheet(f"background:{C_BG}; color:{C_TEXT};")
+        self.setStyleSheet(f"""
+            background:{C_BG}; color:{C_TEXT};
+            QScrollBar:vertical {{
+                background: {C_PANEL};
+                width: 12px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {C_RED};
+                min-height: 24px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {C_GOLD};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+                background: transparent;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
+            QScrollBar:horizontal {{
+                background: {C_PANEL};
+                height: 12px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {C_RED};
+                min-width: 24px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {C_GOLD};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+                background: transparent;
+            }}
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: transparent;
+            }}
+        """)
 
         # Load settings
         settings = db.load_settings()

@@ -564,8 +564,12 @@ def _build_repechage_side(defeated, semi_loser, mode):
                 if m:
                     m["bronze"] = True
         return {"rounds": rounds}
+    
+    # Simple mode
     if not defeated:
-        return None
+        # Even if no one defeated, semi_loser goes to bronze
+        return {"rounds": [[{"white": None, "blue": semi_loser, "winner_id": None, "bronze": True}]]}
+
     if len(defeated) == 1:
         return {"rounds": [[{"white": defeated[0], "blue": semi_loser, "winner_id": None, "bronze": True}]]}
     rounds, _, _ = _generate_bracket(defeated, preserve_order=True)
@@ -635,8 +639,6 @@ def _update_repechage(draw, players):
             return
         _ensure_bronze_match(side_rounds)
         m = side_rounds[-1][0]
-        
-        # Idempotency check
         wid = m.get("white", {}).get("id") if m.get("white") else None
         bid = m.get("blue", {}).get("id") if m.get("blue") else None
         if wid == player["id"] or bid == player["id"]:
@@ -644,14 +646,50 @@ def _update_repechage(draw, players):
 
         if m.get("white") is None:
             m["white"] = player
-            return
-        if m.get("blue") is None:
+        elif m.get("blue") is None:
             m["blue"] = player
+        else:
             return
+
+        # If bronze now has two athletes, clear any auto-advance winner/bye
+        if m.get("white") and m.get("blue"):
+            m["winner_id"] = None
+            m.pop("bye", None)
+
+
 
     def _merge_repechage_results(old_rep, new_rep):
         if not isinstance(old_rep, dict) or not isinstance(new_rep, dict):
             return
+        def _propagate_winner(curr_rounds, ri, mi, wid):
+            if wid is None:
+                return
+            if ri + 1 >= len(curr_rounds):
+                return
+            slot = mi // 2
+            first = mi % 2 == 0
+            player = next((p for p in players if p["id"] == wid), None)
+            if not player:
+                return
+            if slot >= len(curr_rounds[ri+1]):
+                curr_rounds[ri+1].extend([None] * (slot - len(curr_rounds[ri+1]) + 1))
+            if curr_rounds[ri+1][slot] is None:
+                curr_rounds[ri+1][slot] = {"white": None, "blue": None, "winner_id": None}
+
+            next_m = curr_rounds[ri+1][slot]
+            side_str = "white" if first else "blue"
+
+            # If target slot is pre-filled (e.g. bronze placement), flip if needed
+            if next_m.get(side_str) is not None and next_m.get(f"{side_str}_from") is None:
+                side_str = "blue" if side_str == "white" else "white"
+            # If target slot is already bound to a different source, try the other side
+            elif next_m.get(f"{side_str}_from") is not None and next_m.get(f"{side_str}_from") != mi:
+                side_str = "blue" if side_str == "white" else "white"
+
+            if next_m.get(side_str) is None or next_m.get(f"{side_str}_from") in (None, mi):
+                next_m[side_str] = player
+                next_m[f"{side_str}_from"] = mi
+
         def match_key(m):
             if not m: return None
             w = m.get("white"); b = m.get("blue")
@@ -674,13 +712,19 @@ def _update_repechage(draw, players):
 
         for side in new_rep.values():
             if not isinstance(side, dict): continue
-            for round_list in side.get("rounds", []):
-                for m in round_list:
+            curr_rounds = side.get("rounds", [])
+            for ri, round_list in enumerate(curr_rounds):
+                for mi, m in enumerate(round_list):
                     if not m: continue
-                    if m.get("winner_id") is not None: continue
+                    # If already set, still ensure it is propagated into next round
+                    if m.get("winner_id") is not None:
+                        _propagate_winner(curr_rounds, ri, mi, m.get("winner_id"))
+                        continue
                     k = match_key(m)
                     if k is not None and k in wins:
-                        m["winner_id"] = wins[k]
+                        wid = wins[k]
+                        m["winner_id"] = wid
+                        _propagate_winner(curr_rounds, ri, mi, wid)
 
     if mode == "simple":
         final = rounds[-1][0] if rounds[-1] else None
@@ -711,15 +755,75 @@ def _update_repechage(draw, players):
                 sf1_l = _loser(sf_round[0])
                 sf2_l = _loser(sf_round[1])
 
-                def _update_match_players(match, white, blue):
+                def _pending_loser(qf_match):
+                    if not qf_match: return False
+                    w = qf_match.get("white"); b = qf_match.get("blue")
+                    if not w or not b: return False
+                    return qf_match.get("winner_id") is None
+
+                def _update_match_players(match, white, blue, allow_auto_bye=True):
                     if not match: return
                     old_w = match.get("white"); old_b = match.get("blue")
                     w_ch = (old_w.get("id") if old_w else None) != (white.get("id") if white else None)
                     b_ch = (old_b.get("id") if old_b else None) != (blue.get("id") if blue else None)
                     if w_ch or b_ch:
-                        match["winner_id"] = None
+                        wid = match.get("winner_id")
+                        still_valid = (
+                            wid is not None and (
+                                (white and white.get("id") == wid) or
+                                (blue and blue.get("id") == wid)
+                            )
+                        )
+                        if not still_valid:
+                            match["winner_id"] = None
                     match["white"] = white
                     match["blue"] = blue
+                    # Recompute bye status to avoid stale "bye" blocking UI actions
+                    if white and blue:
+                        match.pop("bye", None)
+                    else:
+                        if allow_auto_bye:
+                            match["bye"] = True
+                            player = white or blue
+                            match["winner_id"] = player["id"] if player else None
+                        else:
+                            match.pop("bye", None)
+                            match["winner_id"] = None
+
+                def _sanitize_pending_bye(match, allow_auto_bye):
+                    if not match: return
+                    if match.get("white") and match.get("blue"):
+                        match.pop("bye", None)
+                        return
+                    if not allow_auto_bye:
+                        match.pop("bye", None)
+                        match["winner_id"] = None
+
+                def _clear_auto_advance(side_rounds, match_idx):
+                    if not side_rounds or len(side_rounds) < 2:
+                        return
+                    if match_idx < 0 or match_idx >= len(side_rounds[0]):
+                        return
+                    m0 = side_rounds[0][match_idx]
+                    if not m0 or m0.get("bye"):
+                        return
+                    if not (m0.get("white") and m0.get("blue")):
+                        return
+                    slot = match_idx // 2
+                    side = "white" if match_idx % 2 == 0 else "blue"
+                    if slot >= len(side_rounds[1]):
+                        return
+                    m1 = side_rounds[1][slot]
+                    if not m1:
+                        return
+                    if m1.get(f"{side}_from") == match_idx:
+                        m1[side] = None
+                        m1.pop(f"{side}_from", None)
+                        if m1.get("winner_id") is not None:
+                            m1["winner_id"] = None
+
+                pending_top = _pending_loser(qf_round[0]) or _pending_loser(qf_round[1])
+                pending_bottom = _pending_loser(qf_round[2]) or _pending_loser(qf_round[3])
 
                 # Reuse existing repechage if compatible (Update In Place)
                 if prev_rep and \
@@ -730,16 +834,23 @@ def _update_repechage(draw, players):
                     # Update Top
                     r0 = prev_rep["top"]["rounds"][0]
                     if r0 and r0[0]:
-                        _update_match_players(r0[0], qf1_l, qf2_l)
+                        _update_match_players(r0[0], qf1_l, qf2_l, allow_auto_bye=not pending_top)
+                        _clear_auto_advance(prev_rep["top"]["rounds"], 0)
+                    if not pending_top:
+                        _advance_byes_in_rounds(prev_rep["top"]["rounds"], players)
                     _place_in_bronze(prev_rep["top"]["rounds"], sf2_l)
 
                     # Update Bottom
                     r0 = prev_rep["bottom"]["rounds"][0]
                     if r0 and r0[0]:
-                        _update_match_players(r0[0], qf3_l, qf4_l)
+                        _update_match_players(r0[0], qf3_l, qf4_l, allow_auto_bye=not pending_bottom)
+                        _clear_auto_advance(prev_rep["bottom"]["rounds"], 0)
+                    if not pending_bottom:
+                        _advance_byes_in_rounds(prev_rep["bottom"]["rounds"], players)
                     _place_in_bronze(prev_rep["bottom"]["rounds"], sf1_l)
                     
                     draw["repechage"] = prev_rep
+                    _merge_repechage_results(prev_rep, draw["repechage"])
                     return
 
                 # Build fresh if no compatible previous structure
@@ -747,12 +858,16 @@ def _update_repechage(draw, players):
                         {"white": None, "blue": None, "winner_id": None, "bronze": True}]
                 right = [_make_match(qf3_l, qf4_l, bronze=False),
                          {"white": None, "blue": None, "winner_id": None, "bronze": True}]
+                _sanitize_pending_bye(left[0], allow_auto_bye=not pending_top)
+                _sanitize_pending_bye(right[0], allow_auto_bye=not pending_bottom)
                 draw["repechage"] = {
                     "top": {"rounds": [[left[0]], [left[1]]]},
                     "bottom": {"rounds": [[right[0]], [right[1]]]},
                 }
-                _advance_byes_in_rounds(draw["repechage"]["top"]["rounds"], players)
-                _advance_byes_in_rounds(draw["repechage"]["bottom"]["rounds"], players)
+                if not pending_top:
+                    _advance_byes_in_rounds(draw["repechage"]["top"]["rounds"], players)
+                if not pending_bottom:
+                    _advance_byes_in_rounds(draw["repechage"]["bottom"]["rounds"], players)
                 _place_in_bronze(draw["repechage"]["top"]["rounds"], sf2_l)
                 _place_in_bronze(draw["repechage"]["bottom"]["rounds"], sf1_l)
                 _merge_repechage_results(prev_rep, draw["repechage"])
@@ -965,15 +1080,24 @@ def advance_repechage(draw, side_key, round_idx, match_idx, winner_id, players):
         if rounds[round_idx+1][slot] is None:
             rounds[round_idx+1][slot] = {"white": None, "blue": None, "winner_id": None}
         
-        match = rounds[round_idx+1][slot]
-        side = "white" if first else "blue"
+        next_match = rounds[round_idx+1][slot]
+        side_str = "white" if first else "blue"
         
         # If target slot is pre-filled by a placed loser (no _from), flip side
-        if match.get(side) is not None and match.get(f"{side}_from") is None:
-            side = "blue" if side == "white" else "white"
-            
-        match[side] = player
-        match[f"{side}_from"] = match_idx
+        if next_match.get(side_str) is not None and next_match.get(f"{side_str}_from") is None:
+            side_str = "blue" if side_str == "white" else "white"
+        
+        # Store old player to detect if match composition changed
+        old_player = next_match.get(side_str)
+        old_player_id = old_player.get("id") if old_player else None
+        new_player_id = player.get("id") if player else None
+        
+        next_match[side_str] = player
+        next_match[f"{side_str}_from"] = match_idx
+        
+        # Reset winner_id if match composition changed
+        if old_player_id != new_player_id:
+            next_match["winner_id"] = None
 
 def advance_pool5(draw, stage, match_idx, winner_id, players):
     if draw.get("type") != "pool5":

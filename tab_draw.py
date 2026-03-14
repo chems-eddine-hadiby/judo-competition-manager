@@ -212,7 +212,30 @@ class DrawTab(QWidget):
 
         self.cat_scroll = QScrollArea()
         self.cat_scroll.setWidgetResizable(True)
-        self.cat_scroll.setStyleSheet("background:transparent;border:none;")
+        self.cat_scroll.setStyleSheet(f"""
+            background: transparent;
+            border: none;
+            QScrollBar:vertical {{
+                background: {C_PANEL};
+                width: 12px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {C_RED};
+                min-height: 28px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {C_GOLD};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+                background: transparent;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
+        """)
         self.cat_inner = QWidget()
         self.cat_inner.setStyleSheet(f"background:{C_PANEL};")
         self.cat_vbox  = QVBoxLayout(self.cat_inner)
@@ -279,7 +302,50 @@ class DrawTab(QWidget):
 
         self.bracket_scroll = QScrollArea()
         self.bracket_scroll.setWidgetResizable(True)
-        self.bracket_scroll.setStyleSheet(f"background:{P_BG}; border:none;")
+        self.bracket_scroll.setStyleSheet(f"""
+            background: {P_BG};
+            border: none;
+            QScrollBar:vertical {{
+                background: #f0f0f0;
+                width: 12px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {C_RED};
+                min-height: 28px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {C_GOLD};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+                background: transparent;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
+            QScrollBar:horizontal {{
+                background: #f0f0f0;
+                height: 12px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {C_RED};
+                min-width: 28px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {C_GOLD};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+                background: transparent;
+            }}
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: transparent;
+            }}
+        """)
         self.bracket_widget = QWidget()
         self.bracket_widget.setStyleSheet(f"background:{P_BG};")
         self.bracket_vbox = QVBoxLayout(self.bracket_widget)
@@ -461,8 +527,10 @@ class DrawTab(QWidget):
             rep_label.setAlignment(Qt.AlignCenter)
             rep_v.addWidget(rep_label)
             
-            top_r = rep.get("top", {}).get("rounds", [])
-            bot_r = rep.get("bottom", {}).get("rounds", [])
+            top_side = rep.get("top") or {}
+            bot_side = rep.get("bottom") or {}
+            top_r = top_side.get("rounds", [])
+            bot_r = bot_side.get("rounds", [])
 
             if top_r:
                 rep_v.addWidget(self._render_rounds_widget(top_r, context="repechage", side_key="top"))
@@ -730,7 +798,10 @@ class DrawTab(QWidget):
     def _make_match_card(self, match, ri, mi, context="main", side_key=None, round_label=None):
         card = QFrame()
         card.setStyleSheet(f"background:transparent;")
-        card.setFixedHeight(CARD_H)
+        if context == "repechage":
+            card.setMinimumHeight(CARD_H)
+        else:
+            card.setFixedHeight(CARD_H)
         cl = QVBoxLayout(card); cl.setContentsMargins(0,0,0,0); cl.setSpacing(6)
 
         white_p = match.get("white")
@@ -807,12 +878,6 @@ class DrawTab(QWidget):
                 rl.addWidget(win_lbl)
 
             cl.addWidget(row)
-
-        if context == "repechage":
-            tag = QLabel("BRONZE" if match.get("bronze") else "REPECHAGE")
-            tag.setStyleSheet(f"color:{P_GOLD if match.get('bronze') else P_DIM};"
-                              "font-size:9px;font-weight:bold;background:transparent;margin-left:4px;")
-            cl.addWidget(tag)
 
         # Action buttons
         if not winner and white_p and blue_p and not is_bye:
