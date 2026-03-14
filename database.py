@@ -23,6 +23,7 @@ DEFAULT_SETTINGS = {
     "repechage_mode":    "simple",
     "custom_category_label": "Custom",
     "champions_by_category": {},
+    "removed_weight_categories": "",
 }
 
 SAMPLE_PLAYERS = [
@@ -60,12 +61,53 @@ def parse_custom_weights(text: str):
         return []
     return [c.strip() for c in re.split(r"[,\n]+", text) if c.strip()]
 
+def parse_custom_weights_by_gender(text: str):
+    res = {"male": [], "female": []}
+    if not text:
+        return res
+    for token in re.split(r"[,\n]+", text):
+        t = token.strip()
+        if not t:
+            continue
+        m = re.match(r"^(male|female|m|f)[:\\s]+(.+)$", t, re.IGNORECASE)
+        if m:
+            g = m.group(1).lower()
+            g = "male" if g in ("male", "m") else "female"
+            w = m.group(2).strip()
+            if w:
+                res[g].append(w)
+        else:
+            # Backward-compat: no gender specified -> apply to both
+            res["male"].append(t)
+            res["female"].append(t)
+    return res
+
+def parse_gendered_list(text: str):
+    # Same format as parse_custom_weights_by_gender but no backward-compat to both
+    res = {"male": [], "female": []}
+    if not text:
+        return res
+    for token in re.split(r"[,\n]+", text):
+        t = token.strip()
+        if not t:
+            continue
+        m = re.match(r"^(male|female|m|f)[:\\s]+(.+)$", t, re.IGNORECASE)
+        if not m:
+            continue
+        g = m.group(1).lower()
+        g = "male" if g in ("male", "m") else "female"
+        w = m.group(2).strip()
+        if w:
+            res[g].append(w)
+    return res
+
 def combined_weights(age_group: str, gender: str, custom_text: str):
-    extras = parse_custom_weights(custom_text)
+    extras = parse_custom_weights_by_gender(custom_text).get(gender, [])
     if age_group == "Custom":
         return extras
     base = get_age_group_weights(age_group, gender)
-    return base + extras
+    removed = set(parse_gendered_list(load_settings().get("removed_weight_categories", "")).get(gender, []))
+    return [w for w in (base + extras) if w not in removed]
 
 def _ensure():
     os.makedirs(DATA_DIR, exist_ok=True)

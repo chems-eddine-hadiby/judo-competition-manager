@@ -63,15 +63,22 @@ class ConfigDialog(QDialog):
         grid.addWidget(self.custom_cat, 3, 1, 1, 3)
 
         add_row = QHBoxLayout()
+        self.gender_combo = QComboBox()
+        self.gender_combo.addItems(["Male", "Female"])
+        self.gender_combo.setFixedWidth(90)
         self.new_weight = QLineEdit(); self.new_weight.setPlaceholderText("-66kg")
         self.add_weight = QPushButton("Add"); self.add_weight.clicked.connect(self._add_weight)
         self.remove_weight = QPushButton("Remove"); self.remove_weight.clicked.connect(self._remove_weight)
+        add_row.addWidget(self.gender_combo)
         add_row.addWidget(self.new_weight)
         add_row.addWidget(self.add_weight)
         add_row.addWidget(self.remove_weight)
         layout.addLayout(add_row)
 
         btn_row = QHBoxLayout()
+        self.reset_settings = QPushButton("Reset settings")
+        self.reset_settings.clicked.connect(self._reset_settings)
+        btn_row.addWidget(self.reset_settings)
         self.clear_users = QPushButton("Clear competitors"); self.clear_users.clicked.connect(self._clear_competitors)
         btn_row.addWidget(self.clear_users)
         btn_row.addStretch()
@@ -98,47 +105,115 @@ class ConfigDialog(QDialog):
     def _refresh_weights(self):
         self.weights_list.clear()
         age_group = self.age_box.currentText()
-        custom_text = db.load_settings().get("custom_weight_categories", "")
-        weights = []
+        settings = db.load_settings()
+        custom_text = settings.get("custom_weight_categories", "")
+        removed_text = settings.get("removed_weight_categories", "")
+        custom_by_gender = db.parse_custom_weights_by_gender(custom_text)
+        removed_by_gender = db.parse_gendered_list(removed_text)
+
+        def _add_item(gender, weight, is_base):
+            prefix = "M" if gender == "male" else "F"
+            item = QListWidgetItem(f"{prefix} {weight}")
+            item.setData(Qt.UserRole, {"gender": gender, "weight": weight, "base": is_base})
+            if is_base:
+                item.setForeground(QColor("#8888aa"))
+            self.weights_list.addItem(item)
+
         if age_group != "Custom":
-            weights = db.get_age_group_weights(age_group, "male") + db.get_age_group_weights(age_group, "female")
-            seen = []
-            for w in weights:
-                if w not in seen:
-                    seen.append(w)
-            weights = seen
-        else:
-            weights = [w.strip() for w in custom_text.split(",") if w.strip()]
-        for w in weights:
-            self.weights_list.addItem(w)
-        self.custom_cat.setEnabled(age_group == "Custom")
+            for w in db.get_age_group_weights(age_group, "male"):
+                if w not in removed_by_gender.get("male", []):
+                    _add_item("male", w, True)
+            for w in db.get_age_group_weights(age_group, "female"):
+                if w not in removed_by_gender.get("female", []):
+                    _add_item("female", w, True)
+        for w in custom_by_gender.get("male", []):
+            _add_item("male", w, False)
+        for w in custom_by_gender.get("female", []):
+            _add_item("female", w, False)
+        self.custom_cat.setEnabled(True)
 
     def _add_weight(self):
         text = self.new_weight.text().strip()
         if not text:
             return
-        self.weights_list.addItem(text)
+        gender = "male" if self.gender_combo.currentText() == "Male" else "female"
+        settings = db.load_settings()
+        removed_text = settings.get("removed_weight_categories", "")
+        removed_by_gender = db.parse_gendered_list(removed_text)
+        if text in removed_by_gender.get(gender, []):
+            removed_by_gender[gender] = [w for w in removed_by_gender[gender] if w != text]
+            settings["removed_weight_categories"] = ",".join(
+                [f"male:{w}" for w in removed_by_gender.get("male", [])] +
+                [f"female:{w}" for w in removed_by_gender.get("female", [])]
+            )
+            db.save_settings(settings)
+            self._refresh_weights()
+            self.new_weight.clear()
+            return
+        # Prevent duplicates
+        for i in range(self.weights_list.count()):
+            it = self.weights_list.item(i)
+            data = it.data(Qt.UserRole) or {}
+            if data.get("gender") == gender and data.get("weight") == text:
+                return
+        prefix = "M" if gender == "male" else "F"
+        item = QListWidgetItem(f"{prefix} {text}")
+        item.setData(Qt.UserRole, {"gender": gender, "weight": text, "base": False})
+        self.weights_list.addItem(item)
         self.new_weight.clear()
 
     def _remove_weight(self):
         current = self.weights_list.currentItem()
         if current:
+            data = current.data(Qt.UserRole) or {}
+            gender = data.get("gender")
+            weight = data.get("weight")
+            if not gender or not weight:
+                return
+            if data.get("base"):
+                settings = db.load_settings()
+                removed_text = settings.get("removed_weight_categories", "")
+                removed_by_gender = db.parse_gendered_list(removed_text)
+                if weight not in removed_by_gender.get(gender, []):
+                    removed_by_gender[gender].append(weight)
+                settings["removed_weight_categories"] = ",".join(
+                    [f"male:{w}" for w in removed_by_gender.get("male", [])] +
+                    [f"female:{w}" for w in removed_by_gender.get("female", [])]
+                )
+                db.save_settings(settings)
+                self._refresh_weights()
+                return
             self.weights_list.takeItem(self.weights_list.row(current))
 
     def _clear_competitors(self):
         if QMessageBox.question(self, "Clear competitors", "Remove all competitors from the database?") == QMessageBox.Yes:
             db.save_players([])
             QMessageBox.information(self, "Done", "Competitors cleared.")
+    
+    def _reset_settings(self):
+        if QMessageBox.question(self, "Reset settings", "Restore all settings to default values?") != QMessageBox.Yes:
+            return
+        db.save_settings(db.DEFAULT_SETTINGS.copy())
+        self._load_settings()
 
     def selected_weights(self):
-        return [self.weights_list.item(i).text() for i in range(self.weights_list.count())]
+        out = []
+        for i in range(self.weights_list.count()):
+            data = self.weights_list.item(i).data(Qt.UserRole) or {}
+            if data.get("base"):
+                continue
+            g = data.get("gender")
+            w = data.get("weight")
+            if g and w:
+                out.append((g, w))
+        return out
 
     def accept(self):
         settings = db.load_settings()
         settings["age_group"] = self.age_box.currentText()
         seconds = max(1, self.btn_minutes.value() * 60 + self.btn_seconds.value())
         settings["match_duration"] = seconds
-        settings["custom_weight_categories"] = ",".join(self.selected_weights())
+        settings["custom_weight_categories"] = ",".join(f"{g}:{w}" for g, w in self.selected_weights())
         settings["custom_category_label"] = self.custom_cat.text().strip() or "Custom"
         db.save_settings(settings)
         super().accept()

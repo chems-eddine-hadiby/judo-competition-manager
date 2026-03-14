@@ -258,8 +258,11 @@ class ResultsTab(QWidget):
                     bronze_ids.append(loser.get("id"))
 
             pools = draw.get("pools", {})
+            pool_a = pools.get("A", {})
             pool_b = pools.get("B", {})
+            a_ids = _pool_order(pool_a.get("players", []), pool_a.get("matches", []))
             b_ids = _pool_order(pool_b.get("players", []), pool_b.get("matches", []))
+            third_a = a_ids[2] if len(a_ids) > 2 else None
             third_b = b_ids[2] if len(b_ids) > 2 else None
 
             places = ["-"] * 8
@@ -267,7 +270,8 @@ class ResultsTab(QWidget):
             places[1] = pstr(silver)
             if len(bronze_ids) > 0: places[2] = pstr(bronze_ids[0])
             if len(bronze_ids) > 1: places[3] = pstr(bronze_ids[1])
-            places[6] = pstr(third_b)
+            if third_a: places[4] = pstr(third_a)
+            if third_b: places[5] = pstr(third_b)
             return places
 
         def pstr(pid):
