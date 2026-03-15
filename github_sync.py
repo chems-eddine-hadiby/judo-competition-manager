@@ -6,8 +6,12 @@ Uses GitHub Contents API (no external deps).
 import base64
 import json
 import re
+import time
+from datetime import datetime, timezone
 import urllib.request
 import urllib.error
+import certifi
+import ssl
 
 REPO = "chems-eddine-hadiby/judo-competitions"
 API_ROOT = f"https://api.github.com/repos/{REPO}/contents"
@@ -25,8 +29,9 @@ def _request(method, path, token, data=None):
         body = json.dumps(data).encode("utf-8")
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    ctx = ssl.create_default_context(cafile=certifi.where())
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, context=ctx) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         status = getattr(e, "code", "unknown")
@@ -49,6 +54,9 @@ def sanitize_folder_name(name: str) -> str:
     name = re.sub(r"\s+", "-", name.strip())
     name = re.sub(r"[^A-Za-z0-9._-]+", "", name)
     return name.strip("-")
+
+def sanitize_key(name: str) -> str:
+    return sanitize_folder_name(name)
 
 def list_competitions(token):
     items = _request("GET", "", token)
@@ -75,3 +83,43 @@ def put_json(token, folder, filename, obj, message):
     if sha:
         payload["sha"] = sha
     return _request("PUT", f"{folder}/{filename}", token, payload)
+
+def delete_file(token, folder, filename, message):
+    sha = _get_sha(token, folder, filename)
+    if not sha:
+        return False
+    payload = {"message": message, "sha": sha}
+    _request("DELETE", f"{folder}/{filename}", token, payload)
+    return True
+
+def lock_match(token, folder, lock_key, owner, ttl_seconds=900):
+    now = time.time()
+    expires_at = datetime.fromtimestamp(now + ttl_seconds, tz=timezone.utc).isoformat()
+    path = f"locks/{lock_key}.json"
+    existing = None
+    try:
+        existing = get_json(token, folder, path)
+    except Exception:
+        existing = None
+    if isinstance(existing, dict):
+        exp = existing.get("expires_at")
+        try:
+            exp_ts = datetime.fromisoformat(exp.replace("Z", "+00:00")).timestamp() if exp else 0
+        except Exception:
+            exp_ts = 0
+        if exp_ts and exp_ts > now and existing.get("owner") != owner:
+            return False, existing
+    payload = {
+        "owner": owner,
+        "expires_at": expires_at,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    put_json(token, folder, path, payload, f"Lock {lock_key}")
+    return True, payload
+
+def release_lock(token, folder, lock_key):
+    path = f"locks/{lock_key}.json"
+    try:
+        return delete_file(token, folder, path, f"Unlock {lock_key}")
+    except Exception:
+        return False

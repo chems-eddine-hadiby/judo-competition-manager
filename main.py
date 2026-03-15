@@ -16,6 +16,8 @@ from PyQt5.QtCore  import Qt, QTimer
 from PyQt5.QtGui   import QFont, QColor, QIcon, QKeySequence, QPalette
 
 import os
+import threading
+import uuid
 import database as db
 import github_sync as gsync
 from match_engine     import MatchEngine, MATCH_DURATION
@@ -455,9 +457,18 @@ class MainWindow(QMainWindow):
         self._scoreboard_blue_id = None
         self._scoreboard_white_player = None
         self._scoreboard_blue_player = None
+        self._sync_inflight = False
+        self._sync_applying_remote = False
+        self._sync_client_id = f"{os.environ.get('COMPUTERNAME','pc')}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
+        self._current_lock_key = None
 
         db.ensure_sample_players()
         self._build()
+
+        self._sync_timer = QTimer(self)
+        self._sync_timer.setInterval(15000)
+        self._sync_timer.timeout.connect(self._sync_poll)
+        self._sync_timer.start()
 
     # ── Build main window ─────────────────────────────────────────────────────
 
@@ -652,10 +663,12 @@ class MainWindow(QMainWindow):
         self._scoreboard_blue_id = None
         self._scoreboard_white_player = None
         self._scoreboard_blue_player = None
+        self._sync_push_async()
 
     def _on_profile_change(self):
         self.draw_tab.refresh_categories()
         self._on_engine_update()
+        self._sync_push_async()
 
     def _on_draw_update(self):
         self.draw_tab.refresh_categories()
@@ -663,15 +676,118 @@ class MainWindow(QMainWindow):
             self.draw_tab._render(db.get_draw(self.draw_tab._active_key))
         if hasattr(self, "res_tab"):
             self.res_tab.refresh()
+        if self._current_lock_key and self.match_tab.engine.finished:
+            self._release_match_lock()
+        if not self._sync_applying_remote:
+            self._sync_push_async()
 
     def _on_event_name_change(self, name):
         if self._scoreboard:
             self._scoreboard.set_event_name(name)
         s = db.load_settings(); s["event_name"]=name; db.save_settings(s)
+        self._sync_push_async()
 
     def _start_match_from_draw(self, white_id, blue_id, category, stage=None):
+        if not self._acquire_match_lock(white_id, blue_id, category, stage):
+            QMessageBox.warning(self, "Match locked", "This match is already in progress by another user.")
+            return
         self.match_tab.load_match(white_id, blue_id, category, stage=stage)
         self.tabs.setCurrentIndex(0)
+
+    def _get_competition_folder(self):
+        settings = db.load_settings()
+        event = settings.get("event_name", "Competition")
+        age = settings.get("age_group", "Senior")
+        if age == "Custom":
+            age = settings.get("custom_category_label", "Custom")
+        return gsync.sanitize_folder_name(f"{event}-{age}")
+
+    def _acquire_match_lock(self, white_id, blue_id, category, stage):
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if not token:
+            return True
+        folder = self._get_competition_folder()
+        lock_key = gsync.sanitize_key(f"{category}-{stage or ''}-{white_id}-{blue_id}")
+        try:
+            ok, _ = gsync.lock_match(token, folder, lock_key, self._sync_client_id, ttl_seconds=900)
+        except Exception:
+            return True
+        if ok:
+            self._current_lock_key = lock_key
+            return True
+        return False
+
+    def _release_match_lock(self):
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if not token or not self._current_lock_key:
+            self._current_lock_key = None
+            return
+        folder = self._get_competition_folder()
+        try:
+            gsync.release_lock(token, folder, self._current_lock_key)
+        except Exception:
+            pass
+        self._current_lock_key = None
+
+    def _sync_push_async(self):
+        if self._sync_inflight:
+            return
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if not token:
+            return
+        folder = self._get_competition_folder()
+        if not folder:
+            return
+        def _work():
+            self._sync_inflight = True
+            try:
+                # Only sync if competition folder exists
+                try:
+                    gsync.get_json(token, folder, "meta.json")
+                except Exception:
+                    return
+                settings = db.load_settings()
+                export_settings = dict(settings)
+                export_settings.pop("github_token", None)
+                msg = f"Sync update {folder}"
+                gsync.put_json(token, folder, "players.json", db.load_players(), msg)
+                gsync.put_json(token, folder, "draws.json", db.load_draws(), msg)
+                gsync.put_json(token, folder, "matches.json", db.load_matches(), msg)
+                gsync.put_json(token, folder, "settings.json", export_settings, msg)
+            finally:
+                self._sync_inflight = False
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _sync_poll(self):
+        if self._sync_inflight:
+            return
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if not token:
+            return
+        folder = self._get_competition_folder()
+        if not folder:
+            return
+        def _work():
+            self._sync_inflight = True
+            try:
+                try:
+                    gsync.get_json(token, folder, "meta.json")
+                except Exception:
+                    return
+                players = gsync.get_json(token, folder, "players.json")
+                draws = gsync.get_json(token, folder, "draws.json")
+                matches = gsync.get_json(token, folder, "matches.json")
+                settings = gsync.get_json(token, folder, "settings.json")
+                self._sync_applying_remote = True
+                db.save_players(players)
+                db.save_draws(draws)
+                db.save_matches(matches)
+                db.save_settings(settings)
+                QTimer.singleShot(0, self._on_draw_update)
+            finally:
+                self._sync_applying_remote = False
+                self._sync_inflight = False
+        threading.Thread(target=_work, daemon=True).start()
 
     # ── Public scoreboard ──────────────────────────────────────────────────────
 
