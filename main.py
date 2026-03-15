@@ -247,7 +247,7 @@ class ConfigDialog(QDialog):
         return gsync.sanitize_folder_name(f"{event}-{age}")
 
     def _get_github_token(self):
-        return os.environ.get("GITHUB_TOKEN", "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").strip()
+        return os.environ.get("GITHUB_TOKEN", "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").strip()
 
     def _sync_refresh(self):
         token = self._get_github_token()

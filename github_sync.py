@@ -12,7 +12,7 @@ import urllib.error
 REPO = "chems-eddine-hadiby/judo-competitions"
 API_ROOT = f"https://api.github.com/repos/{REPO}/contents"
 
-def _request(method, path, token="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", data=None):
+def _request(method, path, token="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", data=None):
     url = f"{API_ROOT}/{path}".rstrip("/")
     headers = {
         "Accept": "application/vnd.github+json",
