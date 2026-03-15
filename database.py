@@ -24,6 +24,7 @@ DEFAULT_SETTINGS = {
     "custom_category_label": "Custom",
     "champions_by_category": {},
     "removed_weight_categories": "",
+    "github_token": "",
 }
 
 SAMPLE_PLAYERS = [
@@ -175,6 +176,8 @@ def save_match_result(r):
     m=load_matches(); r["saved_at"]=datetime.now().isoformat(); m.append(r); _write(MATCHES_FILE,m)
 def clear_match_history():
     _write(MATCHES_FILE, [])
+def save_matches(matches):
+    _write(MATCHES_FILE, matches if isinstance(matches, list) else [])
 
 # ── Settings ──────────────────────────────────────────────────────────────────
 def load_settings():

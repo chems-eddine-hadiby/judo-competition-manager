@@ -9,12 +9,14 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QDialog,
     QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QLineEdit, QTabWidget, QFrame, QSizePolicy, QStatusBar, QShortcut,
-    QComboBox, QSpinBox, QListWidget, QListWidgetItem, QMessageBox
+    QComboBox, QSpinBox, QListWidget, QListWidgetItem, QMessageBox, QInputDialog
 )
 from PyQt5.QtCore  import Qt, QTimer
 from PyQt5.QtGui   import QFont, QColor, QIcon, QKeySequence, QPalette
 
+import os
 import database as db
+import github_sync as gsync
 from match_engine     import MatchEngine, MATCH_DURATION
 from scoreboard_window import ScoreboardWindow
 from tab_match        import MatchTab
@@ -57,10 +59,15 @@ class ConfigDialog(QDialog):
         self.weights_list.setFixedHeight(120)
         layout.addWidget(self.weights_list)
 
-        grid.addWidget(QLabel("Custom category name"), 3, 0)
+        grid.addWidget(QLabel("Competition name"), 3, 0)
+        self.event_name = QLineEdit()
+        self.event_name.setPlaceholderText("e.g. Open Cup 2026")
+        grid.addWidget(self.event_name, 3, 1, 1, 3)
+
+        grid.addWidget(QLabel("Custom category name"), 4, 0)
         self.custom_cat = QLineEdit()
-        self.custom_cat.setPlaceholderText("e.g. OPEN / CLUB / ELITE")
-        grid.addWidget(self.custom_cat, 3, 1, 1, 3)
+        self.custom_cat.setPlaceholderText("e.g. VETERAN / OPEN / POUSSINS")
+        grid.addWidget(self.custom_cat, 4, 1, 1, 3)
 
         add_row = QHBoxLayout()
         self.gender_combo = QComboBox()
@@ -75,10 +82,33 @@ class ConfigDialog(QDialog):
         add_row.addWidget(self.remove_weight)
         layout.addLayout(add_row)
 
+        sync = QVBoxLayout()
+        sync.setSpacing(6)
+        sync.addWidget(QLabel("Sync"))
+        self.sync_list = QComboBox()
+        self.sync_list.setMinimumHeight(28)
+        sync.addWidget(self.sync_list)
+        self.sync_password = QLineEdit()
+        self.sync_password.setPlaceholderText("Competition password (for publish)")
+        self.sync_password.setEchoMode(QLineEdit.Password)
+        sync.addWidget(self.sync_password)
+        sync_btns = QHBoxLayout()
+        self.sync_refresh = QPushButton("Refresh list")
+        self.sync_refresh.clicked.connect(self._sync_refresh)
+        self.sync_publish = QPushButton("Publish competition")
+        self.sync_publish.clicked.connect(self._sync_publish)
+        self.sync_import = QPushButton("Import competition")
+        self.sync_import.clicked.connect(self._sync_import)
+        sync_btns.addWidget(self.sync_refresh)
+        sync_btns.addWidget(self.sync_publish)
+        sync_btns.addWidget(self.sync_import)
+        sync.addLayout(sync_btns)
+        layout.addLayout(sync)
+
         btn_row = QHBoxLayout()
-        self.reset_settings = QPushButton("Reset settings")
-        self.reset_settings.clicked.connect(self._reset_settings)
-        btn_row.addWidget(self.reset_settings)
+        self.reset_app = QPushButton("Reset app info")
+        self.reset_app.clicked.connect(self._reset_app_info)
+        btn_row.addWidget(self.reset_app)
         self.clear_users = QPushButton("Clear competitors"); self.clear_users.clicked.connect(self._clear_competitors)
         btn_row.addWidget(self.clear_users)
         btn_row.addStretch()
@@ -99,6 +129,7 @@ class ConfigDialog(QDialog):
         total = settings.get("match_duration", 240)
         self.btn_minutes.setValue(total // 60)
         self.btn_seconds.setValue(total % 60)
+        self.event_name.setText(settings.get("event_name", "Competition"))
         self.custom_cat.setText(settings.get("custom_category_label", "Custom"))
         self._refresh_weights()
 
@@ -130,7 +161,11 @@ class ConfigDialog(QDialog):
             _add_item("male", w, False)
         for w in custom_by_gender.get("female", []):
             _add_item("female", w, False)
-        self.custom_cat.setEnabled(True)
+        if age_group == "Custom":
+            self.custom_cat.setEnabled(True)
+        else:
+            self.custom_cat.setEnabled(False)
+            self.custom_cat.setText("")
 
     def _add_weight(self):
         text = self.new_weight.text().strip()
@@ -190,11 +225,127 @@ class ConfigDialog(QDialog):
             db.save_players([])
             QMessageBox.information(self, "Done", "Competitors cleared.")
     
-    def _reset_settings(self):
-        if QMessageBox.question(self, "Reset settings", "Restore all settings to default values?") != QMessageBox.Yes:
+    def _reset_app_info(self):
+        if QMessageBox.question(
+            self,
+            "Reset app info",
+            "This will reset settings and clear competitors, draws, and match history. Continue?"
+        ) != QMessageBox.Yes:
             return
         db.save_settings(db.DEFAULT_SETTINGS.copy())
+        db.save_players([])
+        db.save_draws({})
+        db.clear_match_history()
         self._load_settings()
+
+    def _competition_folder(self):
+        settings = db.load_settings()
+        event = settings.get("event_name", "Competition")
+        age = settings.get("age_group", "Senior")
+        if age == "Custom":
+            age = settings.get("custom_category_label", "Custom")
+        return gsync.sanitize_folder_name(f"{event}-{age}")
+
+    def _get_github_token(self):
+        return os.environ.get("GITHUB_TOKEN", "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").strip()
+
+    def _sync_refresh(self):
+        token = self._get_github_token()
+
+        try:
+            names = gsync.list_competitions(token)
+        except Exception as e:
+            QMessageBox.warning(self, "Sync error", str(e))
+            return
+        self.sync_list.clear()
+        self.sync_list.addItems(names)
+
+    def _sync_publish(self):
+        token = self._get_github_token()
+        if not token:
+            QMessageBox.warning(self, "Missing token", "Set environment variable GITHUB_TOKEN first.")
+            return
+
+        password = self.sync_password.text().strip()
+        if not password:
+            QMessageBox.warning(self, "Missing password", "Set a competition password first.")
+            return
+        folder = self._competition_folder()
+        if not folder:
+            QMessageBox.warning(self, "Invalid name", "Competition name or age group is invalid.")
+            return
+        try:
+            existing = gsync.list_competitions(token)
+        except Exception as e:
+            QMessageBox.warning(self, "Sync error", str(e))
+            return
+        if folder in existing:
+            QMessageBox.warning(self, "Name exists", "Competition already exists. Use another name.")
+            return
+
+        import hashlib, secrets, datetime
+        salt = secrets.token_hex(16)
+        pwd_hash = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+        meta = {
+            "competition": folder,
+            "created_at": datetime.datetime.now().isoformat(),
+            "password_salt": salt,
+            "password_hash": pwd_hash,
+        }
+        settings = db.load_settings()
+        export_settings = dict(settings)
+        export_settings.pop("github_token", None)
+        message = f"Publish {folder}"
+        try:
+            gsync.put_json(token, folder, "meta.json", meta, message)
+            gsync.put_json(token, folder, "players.json", db.load_players(), message)
+            gsync.put_json(token, folder, "draws.json", db.load_draws(), message)
+            gsync.put_json(token, folder, "matches.json", db.load_matches(), message)
+            gsync.put_json(token, folder, "settings.json", export_settings, message)
+        except Exception as e:
+            QMessageBox.warning(self, "Sync error", str(e))
+            return
+        QMessageBox.information(self, "Published", "Competition published to GitHub.")
+        self._sync_refresh()
+
+    def _sync_import(self):
+        token = self._get_github_token()
+        if not token:
+            QMessageBox.warning(self, "Missing token", "Set environment variable GITHUB_TOKEN first.")
+            return
+
+        folder = self.sync_list.currentText().strip()
+        if not folder:
+            QMessageBox.warning(self, "Missing selection", "Select a competition to import.")
+            return
+        pwd, ok = QInputDialog.getText(self, "Password", "Enter competition password:", QLineEdit.Password)
+        if not ok:
+            return
+        try:
+            meta = gsync.get_json(token, folder, "meta.json")
+        except Exception as e:
+            QMessageBox.warning(self, "Sync error", str(e))
+            return
+        import hashlib
+        salt = meta.get("password_salt", "")
+        expected = meta.get("password_hash", "")
+        if hashlib.sha256((salt + pwd).encode("utf-8")).hexdigest() != expected:
+            QMessageBox.warning(self, "Invalid password", "Password does not match.")
+            return
+        try:
+            players = gsync.get_json(token, folder, "players.json")
+            draws = gsync.get_json(token, folder, "draws.json")
+            matches = gsync.get_json(token, folder, "matches.json")
+            settings = gsync.get_json(token, folder, "settings.json")
+        except Exception as e:
+            QMessageBox.warning(self, "Sync error", str(e))
+            return
+        db.save_players(players)
+        db.save_draws(draws)
+        db.save_matches(matches)
+        db.save_settings(settings)
+        self._load_settings()
+        QMessageBox.information(self, "Imported", "Competition imported.")
 
     def selected_weights(self):
         out = []
@@ -213,6 +364,7 @@ class ConfigDialog(QDialog):
         settings["age_group"] = self.age_box.currentText()
         seconds = max(1, self.btn_minutes.value() * 60 + self.btn_seconds.value())
         settings["match_duration"] = seconds
+        settings["event_name"] = self.event_name.text().strip() or "Competition"
         settings["custom_weight_categories"] = ",".join(f"{g}:{w}" for g, w in self.selected_weights())
         settings["custom_category_label"] = self.custom_cat.text().strip() or "Custom"
         db.save_settings(settings)
