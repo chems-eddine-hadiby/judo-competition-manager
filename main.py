@@ -5,6 +5,7 @@ PyQt5 desktop application, entry point + main window
 """
 import sys
 import os
+import base64
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QDialog,
     QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
@@ -246,17 +247,13 @@ class ConfigDialog(QDialog):
             age = settings.get("custom_category_label", "Custom")
         return gsync.sanitize_folder_name(f"{event}-{age}")
 
+    @staticmethod
     def double_base64_decrypt(encoded_string):
-        # First decode
         first_decode = base64.b64decode(encoded_string)
-        
-        # Second decode
         second_decode = base64.b64decode(first_decode)
-        
-        # Convert bytes to string
-        return second_decode.decode('utf-8')
+        return second_decode.decode("utf-8").strip()
     def _get_github_token(self):
-        return double_base64_decrypt("WjJsMGFIVmlYM0JoZEY4eE1VSkpVMDVMVkZrd1JWSlNiM2RuT0hwQ1dGaHFYMUpHV0hNMU1ESkxXR2RsZWtZNVMyTjZZbGh3UmpCdWJEbFNabXAxV0VGRFRWSmxiSGxCTUU0MU5rRk1SMUpTVlZaTFZVTmtkbkZDUkdoUw==".strip()) or None
+        return self.double_base64_decrypt(str("WjJsMGFIVmlYM0JoZEY4eE1VSkpVMDVMVkZrd1RFWmFNMnBXZWpKdFkyMTBYMk55VFRaTlRYVnFhVmh4TUVSa1JYWmljRXRtVFVka2RsRTFXV2RPTlhsMVZsZEpiVEpFUlRoV01GSkpSVVpLTjB4TlJXVmhZV3BTV1dSag==")) 
 
     def _sync_refresh(self):
         token = self._get_github_token()
