@@ -74,6 +74,16 @@ class MatchEngine:
     def toggle(self):
         self.stop() if self.running else self.start()
 
+    def adjust_time(self, delta_seconds: int):
+        """Manually adjust match time (for disputes)."""
+        if self.finished:
+            return
+        if self.golden:
+            self.golden_elapsed = max(0, self.golden_elapsed + delta_seconds)
+        else:
+            self.time_left = max(0, min(self.match_duration, self.time_left + delta_seconds))
+        self.on_update()
+
     def sono_mama(self):
         """Sono-mama: pause both match timer and osaekomi."""
         if not self.running or self.finished:

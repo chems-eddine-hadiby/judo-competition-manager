@@ -4,16 +4,19 @@ A PyQt5 desktop application for managing judo competitions with match control, c
 
 ## Highlights
 - Match control with timer, osaekomi, shido, waza-ari, ippon, golden score
+- Time dispute adjustment buttons (±1s / ±5s / ±10s / ±30s)
 - Competitor management with weight, gender, age category, and club
 - Draw generation with bracket tree, repechage (simple/double), and round robin (3 or 5 athletes)
 - Champion seeding (up to 8 per category) with gold highlight
 - Public scoreboard window for external display
 - Printable draw PDF
 - Contest history and results (classement)
+- GitHub sync for publishing/importing competitions
 
 ## Requirements
 - Python 3.8+
 - PyQt5
+- certifi
 
 Install dependencies:
 ```bash
@@ -30,7 +33,8 @@ On launch, configure:
 - Age group (Senior / Junior / Cadet / Custom)
 - Match time
 - Weight categories
-- Custom category name (if age group is Custom)
+- Competition name
+- Custom category name (enabled only if age group is Custom)
 - Golden score toggle
 
 ## Main Tabs
@@ -70,6 +74,35 @@ Files:
 - `draws.json`
 - `matches.json`
 - `settings.json`
+
+## Competition Categories
+- Predefined weight categories are separated by gender (male/female).
+- You can add custom categories per gender.
+- You can remove predefined categories (they are hidden in settings).
+
+## Sync (Publish / Import)
+Competitions can be shared through a private GitHub repo.
+
+### How it works
+- Publish uploads `players.json`, `draws.json`, `matches.json`, and `settings.json`.
+- Import downloads and replaces the local JSON files.
+- A competition password is stored as a salted hash in `meta.json`.
+
+### Requirements
+- Set the environment variable `GITHUB_TOKEN` with a repo-scoped token.
+- The competition folder name is `competitionName-ageCategory`.
+
+### Quick connectivity test
+Run:
+```bash
+python github_test.py
+```
+
+## Auto Sync (Background)
+- The app polls the repo every ~15 seconds and pulls updates.
+- Changes are pushed after match updates and key edits.
+- Conflict policy: last write wins.
+- Simple match locking prevents two users starting the same match.
 
 ## Build EXE (Windows)
 Use PyInstaller (with app icon):

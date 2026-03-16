@@ -670,6 +670,19 @@ class CenterControl(QWidget):
         self.lbl_time.setStyleSheet("color:#fff;background:transparent;")
         root.addWidget(self.lbl_time)
 
+        time_adj = QHBoxLayout(); time_adj.setSpacing(6)
+        def _tbtn(label, delta):
+            b = _btn(label, C_DIM, "#111130", min_h=28, size=9)
+            b.clicked.connect(lambda: self.engine.adjust_time(delta))
+            return b
+        time_adj.addStretch()
+        for d in (-1, -5, -10, -30):
+            time_adj.addWidget(_tbtn(f"{d}s", d))
+        for d in (1, 5, 10, 30):
+            time_adj.addWidget(_tbtn(f"+{d}s", d))
+        time_adj.addStretch()
+        root.addLayout(time_adj)
+
         self.lbl_golden = _label("", 11, True, C_GOLD, C_DIM)
         self.lbl_golden.setAlignment(Qt.AlignCenter)
         root.addWidget(self.lbl_golden)
